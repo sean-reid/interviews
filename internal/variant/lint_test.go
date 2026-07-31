@@ -13,11 +13,14 @@ func TestCheckTemplates(t *testing.T) {
 		"candidate/broken.md":   {Data: []byte("Unclosed {{.team_name")},
 		"candidate/nested.md":   {Data: []byte("{{if .team_name}}{{range .missing_one}}x{{end}}{{end}}")},
 		"candidate/dataset.bin": {Data: []byte("{{.not_checked}}")},
+		"candidate/table.csv":   {Data: []byte("nodes,{{.scal}}")},
+		"candidate/Makefile":    {Data: []byte("run: # {{.scal}}")},
 	}
 	declared := map[string]bool{"team_name": true, "scale": true}
 	files := []string{
 		"candidate/brief.md", "candidate/typo.md", "candidate/broken.md",
 		"candidate/nested.md", "candidate/dataset.bin",
+		"candidate/table.csv", "candidate/Makefile",
 	}
 
 	issues := CheckTemplates(fsys, files, declared)
@@ -40,6 +43,31 @@ func TestCheckTemplates(t *testing.T) {
 	}
 	if _, ok := byPath["candidate/dataset.bin"]; ok {
 		t.Error("non-text file was template-checked")
+	}
+	// Everything the bundler renders must be checked, including files the
+	// old list skipped: csv and extensionless.
+	if msg := byPath["candidate/table.csv"]; !strings.Contains(msg, "{{.scal}}") {
+		t.Errorf("csv typo not reported, got %q", msg)
+	}
+	if msg := byPath["candidate/Makefile"]; !strings.Contains(msg, "{{.scal}}") {
+		t.Errorf("extensionless typo not reported, got %q", msg)
+	}
+}
+
+func TestIsTemplated(t *testing.T) {
+	for name, want := range map[string]bool{
+		"candidate/brief.md": true,
+		"harness/run.sh":     true,
+		"candidate/gen.py":   true,
+		"candidate/main.go":  true,
+		"candidate/rows.CSV": true,
+		"candidate/Makefile": true,
+		"candidate/data.bin": false,
+		"candidate/img.png":  false,
+	} {
+		if got := IsTemplated(name); got != want {
+			t.Errorf("IsTemplated(%q) = %v, want %v", name, got, want)
+		}
 	}
 }
 

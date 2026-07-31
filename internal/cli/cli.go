@@ -24,6 +24,7 @@ Commands:
   fault      status | fix injected faults (interviewer only)
   prove      re-prove every fault: inject breaks, documented fix works
   grade      sheet | score | hint: rubric-first grading artifacts
+  bundle     write a take-home candidate bundle (dir or .tar.gz)
   redteam    drive a frontier agent at a problem; ledger records the verdict
   version    print the version
   help       show this help
@@ -43,6 +44,7 @@ var commands = map[string]command{
 	"fault":    cmdFault,
 	"prove":    cmdProve,
 	"grade":    cmdGrade,
+	"bundle":   cmdBundle,
 	"redteam":  cmdRedteam,
 	"version":  cmdVersion,
 	"help":     cmdHelp,

@@ -13,6 +13,7 @@ import (
 	"github.com/sean-reid/interviews/internal/content"
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/sysdesign"
+	"github.com/sean-reid/interviews/internal/takehome"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 	"github.com/sean-reid/interviews/internal/variant"
 )
@@ -116,6 +117,10 @@ func (r *Registry) loadType(fsys fs.FS, t taxonomy.Type) error {
 			case taxonomy.SysDesign:
 				_, reviewIssues := sysdesign.Load(problem)
 				for _, i := range reviewIssues {
+					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
+				}
+			case taxonomy.TakeHome:
+				for _, i := range takehome.Validate(problem) {
 					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
 				}
 			}

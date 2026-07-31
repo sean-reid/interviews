@@ -63,6 +63,11 @@ curveballs:
 `)}
 		return
 	}
+	if typ == "takehome" {
+		fsys[dir+"/candidate/brief.md"] = &fstest.MapFile{
+			Data: []byte("Do the task; write STOPPING-POINT.md when you stop.")}
+		fsys[dir+"/interviewer/probes.md"] = &fstest.MapFile{Data: []byte("probe questions")}
+	}
 	if typ != "debugging" {
 		return
 	}
@@ -247,6 +252,55 @@ func TestInterviewerTextIsNotTemplateChecked(t *testing.T) {
 	}
 	if Errors(r.Findings()) {
 		t.Errorf("interviewer-only text was template-checked: %v", r.Findings())
+	}
+}
+
+// Take-homes carry two extra obligations: the live-review question bank
+// and a brief that sets up the stopping-point writeup.
+func TestTakeHomeValidationRules(t *testing.T) {
+	fsys := fstest.MapFS{}
+	problemFiles(fsys, "takehome/no-probes", "no-probes", "takehome", "class: legacy-rescue")
+	delete(fsys, "takehome/no-probes/interviewer/probes.md")
+	r, err := Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range r.Findings() {
+		if f.Path == "interviewer/probes.md" && !f.Warning {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing probes.md not flagged: %v", r.Findings())
+	}
+
+	fsys = fstest.MapFS{}
+	problemFiles(fsys, "takehome/no-stop", "no-stop", "takehome", "class: legacy-rescue")
+	fsys["takehome/no-stop/candidate/brief.md"] = &fstest.MapFile{Data: []byte("Just do the task.")}
+	r, err = Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, f := range r.Findings() {
+		if f.Path == "candidate/brief.md" && strings.Contains(f.Msg, "stopping-point") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("brief without stopping point not flagged: %v", r.Findings())
+	}
+
+	// Debugging problems owe neither.
+	fsys = fstest.MapFS{}
+	problemFiles(fsys, "debugging/live-one", "live-one", "debugging", "flavor: kubernetes")
+	r, err = Load(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if Errors(r.Findings()) {
+		t.Errorf("take-home rules applied to debugging: %v", r.Findings())
 	}
 }
 

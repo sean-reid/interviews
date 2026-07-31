@@ -13,4 +13,4 @@ params:
     type: choice
     of: [small, medium, large]
 visibility:
-  candidate: [candidate/**]
+  candidate: [candidate/**, harness/**]

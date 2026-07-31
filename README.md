@@ -48,6 +48,14 @@ interviews env down <problem> --seed <id>
 interviews prove <problem>                  # CI gate: every fault breaks, every fix works
 ```
 
+Take-homes ship as clean candidate bundles: the candidate-visible files
+rendered for the variant, a fresh one-commit git history, and a leak gate
+that fails the whole bundle if anything interviewer-only would leave:
+
+```sh
+interviews bundle <problem> --seed <id> -o bundle-dir   # or -o drop.tar.gz
+```
+
 ## Content
 
 Problems live under `content/<type>/<problem>/`, each with a `problem.yaml`
@@ -80,5 +88,3 @@ interviews redteam ledger --stale             # problems that no longer discrimi
 
 A problem an unassisted agent mostly solves is flagged for rework. Re-run the
 calibration whenever a stronger model ships.
-
-More commands (bundle) land as the platform grows.

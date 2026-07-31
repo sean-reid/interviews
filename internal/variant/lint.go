@@ -15,10 +15,23 @@ type TemplateIssue struct {
 	Msg  string
 }
 
-// textExtensions are the candidate files rendered as templates. Binary
-// fixtures and datasets pass through untouched, so they are not checked.
+// textExtensions are the file types rendered as templates when they ship
+// to a candidate. Binary fixtures and datasets pass through untouched.
 var textExtensions = map[string]bool{
 	".md": true, ".txt": true, ".yaml": true, ".yml": true, ".json": true,
+	".py": true, ".go": true, ".sh": true, ".csv": true,
+}
+
+// IsTemplated reports whether a candidate file is rendered as a Go template
+// when it ships: known text extensions plus extensionless files. The content
+// linter and the bundle renderer share this one predicate, so no file can be
+// rendered without also being lint-checked.
+func IsTemplated(name string) bool {
+	ext := strings.ToLower(path.Ext(name))
+	if ext == "" {
+		return true
+	}
+	return textExtensions[ext]
 }
 
 // CheckTemplates parses every candidate-visible text file and reports
@@ -28,7 +41,7 @@ var textExtensions = map[string]bool{
 func CheckTemplates(fsys fs.FS, candidateFiles []string, declared map[string]bool) []TemplateIssue {
 	var issues []TemplateIssue
 	for _, name := range candidateFiles {
-		if !textExtensions[strings.ToLower(path.Ext(name))] {
+		if !IsTemplated(name) {
 			continue
 		}
 		raw, err := fs.ReadFile(fsys, name)

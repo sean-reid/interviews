@@ -62,6 +62,8 @@ func (r *fakeRunner) Start(_ context.Context, name string, args ...string) (int,
 	return 40000 + len(r.calls), nil
 }
 
+func (r *fakeRunner) Alive(pid int) bool { return pid > 0 }
+
 func (r *fakeRunner) Script(_ context.Context, path, _ string, env map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

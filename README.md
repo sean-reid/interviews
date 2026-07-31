@@ -66,6 +66,11 @@ interviews session evidence <problem> --seed <id> --final
 interviews session stop <problem> --seed <id>
 ```
 
+The two terminal endpoints bind fixed loopback ports, 8001 and 8002, which the
+fronting proxy routes by number, so one host runs one live session at a time.
+`session start` refuses a second one and waits for both endpoints to answer
+before printing any URL, rather than handing you a link nothing serves.
+
 See [the runbook](docs/runbook.md) for provisioning a disposable host on any AWS
 account, and for the flow around a live session.
 

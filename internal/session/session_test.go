@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -24,20 +26,26 @@ import (
 )
 
 // fakeRunner records every call. Session logic never touches tmux, ttyd,
-// kubectl, or aws in tests.
+// kubectl, or aws in tests. Started processes model a real one closely
+// enough to matter: one that dies is not alive and its port stops
+// answering, and a live port cannot be bound twice.
 type fakeRunner struct {
 	calls     []string
 	starts    int
 	outputs   map[string]string // substring of the command line -> stdout
 	failCmd   map[string]error  // substring -> Command error
 	failStart map[string]error  // substring -> Start error
+	dieAtOnce map[string]bool   // substring -> Start succeeds, process exits
 	scriptErr map[string]error  // parent/base -> Script error
+	dead      map[int]bool
+	listening map[int]int // port -> pid holding it
 }
 
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{
 		outputs: map[string]string{}, failCmd: map[string]error{},
-		failStart: map[string]error{}, scriptErr: map[string]error{},
+		failStart: map[string]error{}, dieAtOnce: map[string]bool{},
+		scriptErr: map[string]error{}, dead: map[int]bool{}, listening: map[int]int{},
 	}
 }
 
@@ -53,7 +61,27 @@ func match(m map[string]error, line string) error {
 func (r *fakeRunner) Command(_ context.Context, name string, args ...string) error {
 	line := name + " " + strings.Join(args, " ")
 	r.calls = append(r.calls, line)
-	return match(r.failCmd, line)
+	if err := match(r.failCmd, line); err != nil {
+		return err
+	}
+	if name == "kill" && len(args) > 0 {
+		r.exit(args[len(args)-1])
+	}
+	return nil
+}
+
+// exit models a killed process: gone, and its port with it.
+func (r *fakeRunner) exit(pidArg string) {
+	pid, err := strconv.Atoi(pidArg)
+	if err != nil {
+		return
+	}
+	r.dead[pid] = true
+	for port, holder := range r.listening {
+		if holder == pid {
+			delete(r.listening, port)
+		}
+	}
 }
 
 func (r *fakeRunner) Output(_ context.Context, name string, args ...string) (string, error) {
@@ -80,7 +108,43 @@ func (r *fakeRunner) Start(_ context.Context, name string, args ...string) (int,
 		return 0, err
 	}
 	r.starts++
-	return 40000 + r.starts, nil
+	pid := 40000 + r.starts
+	for sub, die := range r.dieAtOnce {
+		if die && strings.Contains(line, sub) {
+			r.dead[pid] = true
+			return pid, nil
+		}
+	}
+	// A listener whose port is taken cannot bind it and exits at once,
+	// which is exactly what a real ttyd does.
+	if port, ok := portFlag(args); ok {
+		if _, taken := r.listening[port]; taken {
+			r.dead[pid] = true
+		} else {
+			r.listening[port] = pid
+		}
+	}
+	return pid, nil
+}
+
+func (r *fakeRunner) Alive(pid int) bool { return pid > 0 && !r.dead[pid] }
+
+// dialPort stands in for the manager's real loopback dial.
+func (r *fakeRunner) dialPort(port int) error {
+	if _, ok := r.listening[port]; ok {
+		return nil
+	}
+	return errors.New("connect: connection refused")
+}
+
+func portFlag(args []string) (int, bool) {
+	for i, a := range args {
+		if a == "-p" && i+1 < len(args) {
+			port, err := strconv.Atoi(args[i+1])
+			return port, err == nil
+		}
+	}
+	return 0, false
 }
 
 func (r *fakeRunner) callsMatching(sub string) []string {
@@ -158,6 +222,8 @@ func testManager(t *testing.T, mutate func(fstest.MapFS)) (*Manager, *fakeRunner
 	var out strings.Builder
 	m := NewManager(e, &out)
 	m.now = func() time.Time { return time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC) }
+	m.dial = r.dialPort
+	m.listenerWait, m.listenerPoll = 50*time.Millisecond, time.Millisecond
 	return m, r, &out
 }
 
@@ -280,6 +346,185 @@ func TestStartToleratesMissingRecorder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, "pids", "asciinema.pid")); !os.IsNotExist(err) {
 		t.Error("pidfile written for a process that never started")
 	}
+}
+
+func TestStartRefusesASecondLiveSession(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	first, err := m.Start(context.Background(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := r.starts
+
+	_, err = m.Start(context.Background(), StartOptions{})
+	if err == nil {
+		t.Fatal("second Start succeeded, duplicating the session stack")
+	}
+	for _, want := range []string{"already running", "pipeline-meltdown", "test-seed", "session stop"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+	if r.starts != before {
+		t.Errorf("starts = %d, want %d: a second generation was spawned", r.starts, before)
+	}
+	// The first generation's record survives, so stop can still find it.
+	onDisk, err := LoadInfo(wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.CandidateToken != first.CandidateToken {
+		t.Error("session.json was overwritten by the refused start")
+	}
+	for _, name := range []string{"asciinema", "ttyd-candidate", "ttyd-observer"} {
+		raw, err := os.ReadFile(filepath.Join(wd, "pids", name+".pid"))
+		if err != nil {
+			t.Fatalf("pidfile %s: %v", name, err)
+		}
+		if pid := strings.TrimSpace(string(raw)); !r.Alive(atoi(t, pid)) {
+			t.Errorf("pidfile %s = %s, not the live first generation", name, pid)
+		}
+	}
+}
+
+func TestStartAfterStopStartsAgain(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	ctx := context.Background()
+	if _, err := m.Start(ctx, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(ctx, StartOptions{}); err != nil {
+		t.Fatalf("Start after Stop = %v", err)
+	}
+	if r.starts != 6 {
+		t.Errorf("starts = %d, want 6", r.starts)
+	}
+}
+
+func TestStartRefusesWhenAPortIsTaken(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	// Another session on this host already holds the observer port.
+	r.listening[ObserverPort] = 999
+
+	_, err := m.Start(context.Background(), StartOptions{})
+	if err == nil {
+		t.Fatal("Start succeeded onto a port it cannot bind")
+	}
+	for _, want := range []string{"8002", "observer", "one session at a time"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+	if len(r.calls) != 0 {
+		t.Errorf("processes spawned before the port check: %v", r.calls)
+	}
+	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, InfoFile)); !os.IsNotExist(err) {
+		t.Error("session.json written for a session that never started")
+	}
+}
+
+func TestStartFailsWhenAListenerDiesAtOnce(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	r.dieAtOnce["-p 8002"] = true
+
+	_, err := m.Start(context.Background(), StartOptions{})
+	if err == nil {
+		t.Fatal("Start reported success with a dead observer listener")
+	}
+	for _, want := range []string{"observer", "8002", "exited immediately"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(wd, InfoFile)); !os.IsNotExist(err) {
+		t.Error("session.json written for a session that never came up")
+	}
+	// Whatever did start is gone: no orphans, no leftover pidfiles. Only
+	// the two live processes are signalled; the dead listener is not.
+	if got := len(r.callsMatching("kill 4000")); got != 2 {
+		t.Errorf("kill calls = %d, want 2 (%v)", got, r.callsMatching("kill"))
+	}
+	if len(r.callsMatching("tmux kill-session -t "+m.Engine.EnvName())) != 1 {
+		t.Errorf("no tmux kill-session in %v", r.calls)
+	}
+	if entries, err := os.ReadDir(filepath.Join(wd, "pids")); err != nil || len(entries) != 0 {
+		t.Errorf("pidfiles left behind: %v, %v", entries, err)
+	}
+	if len(r.listening) != 0 {
+		t.Errorf("ports still held: %v", r.listening)
+	}
+}
+
+func TestStartFailsWhenAListenerNeverAnswers(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	// Alive but never accepting: a listener wedged before its bind.
+	m.dial = func(int) error { return errors.New("connection refused") }
+
+	_, err := m.Start(context.Background(), StartOptions{})
+	if err == nil || !strings.Contains(err.Error(), "did not accept a connection") {
+		t.Fatalf("Start with a silent listener = %v", err)
+	}
+	if !strings.Contains(err.Error(), "candidate") {
+		t.Errorf("error %q does not name the failing listener", err)
+	}
+	if got := len(r.callsMatching("kill 4000")); got != 3 {
+		t.Errorf("kill calls = %d, want 3 (%v)", got, r.callsMatching("kill"))
+	}
+}
+
+func TestStartWarnsWhenTheRecorderDiesAtOnce(t *testing.T) {
+	m, r, out := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	r.dieAtOnce["asciinema"] = true
+
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatalf("a dead recorder must not fail the session: %v", err)
+	}
+	if !strings.Contains(out.String(), "recording unavailable") {
+		t.Errorf("no warning printed: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(wd, "pids", "asciinema.pid")); !os.IsNotExist(err) {
+		t.Error("pidfile left for a recorder that already exited")
+	}
+}
+
+// TestDialPortAnswersRealSockets checks the manager's own dial against a
+// real listener, since every other test replaces it with a fake.
+func TestDialPortAnswersRealSockets(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := dialPort(port); err != nil {
+		t.Errorf("dialPort on a live listener = %v", err)
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := dialPort(port); err == nil {
+		t.Error("dialPort on a closed port reported success")
+	}
+}
+
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func TestStopKillsProcessesAndBundles(t *testing.T) {

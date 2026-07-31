@@ -27,6 +27,9 @@ type Runner interface {
 	// and returns its pid. The process must outlive the CLI, so the
 	// context gates startup only; callers stop it by pid.
 	Start(ctx context.Context, name string, args ...string) (int, error)
+	// Alive reports whether a pid from Start is still running. Start
+	// returning is not evidence the process survived its first moment.
+	Alive(pid int) bool
 }
 
 // ExecRunner is the real Runner.
@@ -65,6 +68,19 @@ func (r *ExecRunner) Start(_ context.Context, name string, args ...string) (int,
 	}
 	go func() { _ = cmd.Wait() }()
 	return cmd.Process.Pid, nil
+}
+
+// Alive signals 0 at the pid. Start reaps the children it launched, so an
+// exited process is gone rather than a zombie that still answers.
+func (r *ExecRunner) Alive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return p.Signal(syscall.Signal(0)) == nil
 }
 
 func (r *ExecRunner) Script(ctx context.Context, path, dir string, env map[string]string) error {

@@ -90,12 +90,22 @@ func TestInterviewerAlwaysWins(t *testing.T) {
 	}
 }
 
-func TestNewClassifierRejectsInterviewerGlobs(t *testing.T) {
-	if _, err := NewClassifier([]string{"interviewer/**"}); err == nil {
-		t.Error("glob targeting interviewer/ accepted, want error")
+func TestNewClassifierRejectsProtectedGlobs(t *testing.T) {
+	for _, pattern := range []string{"interviewer/**", "interviewer", "faults/**", "faults", "faults/*/fix.sh"} {
+		if _, err := NewClassifier([]string{pattern}); err == nil {
+			t.Errorf("glob %q targeting a protected dir accepted, want error", pattern)
+		}
 	}
-	if _, err := NewClassifier([]string{"interviewer"}); err == nil {
-		t.Error("glob equal to interviewer accepted, want error")
+}
+
+// Fault scripts are the answer key for a debugging scenario; like
+// interviewer/, no glob may expose them.
+func TestFaultsDirAlwaysProtected(t *testing.T) {
+	c := mustClassifier(t, "**")
+	for _, p := range []string{"faults/01-image-typo/fix.sh", "faults/01-image-typo/notes.md", "faults"} {
+		if got := c.Classify(p); got != InterviewerOnly {
+			t.Errorf("Classify(%q) = %v, want InterviewerOnly", p, got)
+		}
 	}
 }
 

@@ -9,8 +9,14 @@ import (
 
 func manifest(id, typ, extra string) string {
 	timeSpec := "soft_budget_hours: 6"
+	params := ""
 	if typ == "debugging" {
 		timeSpec = "session_minutes: 60"
+		params = `params:
+  fault_pack:
+    type: choice
+    of: [pack-a]
+`
 	}
 	return fmt.Sprintf(`schema: 1
 id: %s
@@ -22,15 +28,44 @@ levels: [mid]
 %s
 time:
   %s
-visibility:
+%svisibility:
   candidate: [candidate/**]
-`, id, typ, extra, timeSpec)
+`, id, typ, extra, timeSpec, params)
 }
 
+// problemFiles writes a minimal valid problem; debugging problems also get
+// the environment spec and one fault the scenario rules demand.
 func problemFiles(fsys fstest.MapFS, dir, id, typ, extra string) {
 	fsys[dir+"/problem.yaml"] = &fstest.MapFile{Data: []byte(manifest(id, typ, extra))}
 	fsys[dir+"/candidate/brief.md"] = &fstest.MapFile{Data: []byte("brief")}
 	fsys[dir+"/interviewer/notes.md"] = &fstest.MapFile{Data: []byte("key")}
+	if typ != "debugging" {
+		return
+	}
+	script := &fstest.MapFile{Data: []byte("#!/bin/sh\n"), Mode: 0o755}
+	env := `provider: kind
+kind:
+  manifests: env/manifests
+  namespace: app
+verify: env/verify.sh
+`
+	if strings.Contains(extra, "compose-linux") {
+		env = `provider: compose
+compose:
+  file: env/docker-compose.yml
+verify: env/verify.sh
+`
+		fsys[dir+"/env/docker-compose.yml"] = &fstest.MapFile{Data: []byte("services: {}")}
+	} else {
+		fsys[dir+"/env/manifests/00-ns.yaml"] = &fstest.MapFile{Data: []byte("kind: Namespace")}
+	}
+	fsys[dir+"/env.yaml"] = &fstest.MapFile{Data: []byte(env)}
+	fsys[dir+"/env/verify.sh"] = script
+	fsys[dir+"/faults/01-only/fault.yaml"] = &fstest.MapFile{Data: []byte("id: 01-only\ntitle: T\ntier: easy\npacks: [pack-a]\n")}
+	fsys[dir+"/faults/01-only/inject.sh"] = script
+	fsys[dir+"/faults/01-only/check.sh"] = script
+	fsys[dir+"/faults/01-only/fix.sh"] = script
+	fsys[dir+"/faults/01-only/notes.md"] = &fstest.MapFile{Data: []byte("notes")}
 }
 
 func validRoot() fstest.MapFS {
@@ -132,15 +167,17 @@ func TestStrayFileInTypeDir(t *testing.T) {
 // halves must be checked together, or a typo only surfaces when a bundle is
 // rendered for a real candidate.
 func TestTemplateReferencesAreCheckedAgainstDeclaredParams(t *testing.T) {
-	withParams := `params:
-  scale:
-    type: int
-    min: 1
-    max: 5
-flavor: kubernetes`
+	// Extend the generated params block with a scale parameter.
+	addScale := func(fsys fstest.MapFS, dir string) {
+		raw := string(fsys[dir+"/problem.yaml"].Data)
+		raw = strings.Replace(raw, "    of: [pack-a]\n",
+			"    of: [pack-a]\n  scale:\n    type: int\n    min: 1\n    max: 5\n", 1)
+		fsys[dir+"/problem.yaml"] = &fstest.MapFile{Data: []byte(raw)}
+	}
 
 	fsys := fstest.MapFS{}
-	problemFiles(fsys, "debugging/typo-brief", "typo-brief", "debugging", withParams)
+	problemFiles(fsys, "debugging/typo-brief", "typo-brief", "debugging", "flavor: kubernetes")
+	addScale(fsys, "debugging/typo-brief")
 	fsys["debugging/typo-brief/candidate/brief.md"] = &fstest.MapFile{
 		Data: []byte("Runs at scale {{.scal}}."),
 	}
@@ -159,7 +196,8 @@ flavor: kubernetes`
 	}
 
 	fsys = fstest.MapFS{}
-	problemFiles(fsys, "debugging/good-brief", "good-brief", "debugging", withParams)
+	problemFiles(fsys, "debugging/good-brief", "good-brief", "debugging", "flavor: kubernetes")
+	addScale(fsys, "debugging/good-brief")
 	fsys["debugging/good-brief/candidate/brief.md"] = &fstest.MapFile{
 		Data: []byte("Runs at scale {{.scale}}."),
 	}

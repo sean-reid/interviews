@@ -19,10 +19,15 @@ Commands:
   list       list problems in the content tree
   describe   show one problem, optionally with a resolved variant
   validate   check the content tree; exits 1 on any error
+  env        up | verify | down a debugging environment
+  break      inject the variant's fault pack
+  fault      status | fix injected faults (interviewer only)
+  prove      re-prove every fault: inject breaks, documented fix works
   version    print the version
   help       show this help
 
-Every command takes --content <dir> (default ./content).
+Every command takes --content <dir> (default ./content). Debugging commands
+take --seed <interview-id>, which selects the variant deterministically.
 `
 
 type command func(args []string, stdout, stderr io.Writer) int
@@ -31,6 +36,10 @@ var commands = map[string]command{
 	"list":     cmdList,
 	"describe": cmdDescribe,
 	"validate": cmdValidate,
+	"env":      cmdEnv,
+	"break":    cmdBreak,
+	"fault":    cmdFault,
+	"prove":    cmdProve,
 	"version":  cmdVersion,
 	"help":     cmdHelp,
 	"-h":       cmdHelp,

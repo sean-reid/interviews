@@ -1,14 +1,16 @@
 // Package leak decides what a candidate may ever see. Classification is
 // fail-closed: a file is interviewer-only unless a manifest glob explicitly
-// makes it candidate-visible, and nothing under interviewer/ can be made
-// visible at all. Later stages call Leaks over rendered bundles and session
-// filesystems to prove that property end to end.
+// makes it candidate-visible, and nothing in a protected directory
+// (interviewer/, faults/) can be made visible at all. Later stages call
+// Leaks over rendered bundles and session filesystems to prove that
+// property end to end.
 package leak
 
 import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -23,9 +25,10 @@ const (
 	CandidateVisible
 )
 
-// InterviewerDir is the directory whose contents can never be made
-// candidate-visible, whatever the manifest says.
-const InterviewerDir = "interviewer"
+// ProtectedDirs are the directories whose contents can never be made
+// candidate-visible, whatever the manifest says: interviewer/ holds rubrics
+// and references, faults/ holds a debugging scenario's answer-key scripts.
+var ProtectedDirs = []string{"interviewer", "faults"}
 
 // Classifier classifies paths relative to a problem root.
 type Classifier struct {
@@ -42,8 +45,8 @@ func NewClassifier(candidateGlobs []string) (*Classifier, error) {
 		if err != nil {
 			return nil, err
 		}
-		if g.segs[0] == InterviewerDir {
-			return nil, fmt.Errorf("glob %q: interviewer/ can never be candidate-visible", p)
+		if slices.Contains(ProtectedDirs, g.segs[0]) {
+			return nil, fmt.Errorf("glob %q: %s/ can never be candidate-visible", p, g.segs[0])
 		}
 		c.candidate = append(c.candidate, g)
 	}
@@ -53,7 +56,7 @@ func NewClassifier(candidateGlobs []string) (*Classifier, error) {
 // Classify returns the visibility of one slash-separated relative path.
 func (c *Classifier) Classify(name string) Class {
 	name = path.Clean(name)
-	if underInterviewerDir(name) {
+	if underProtectedDir(name) {
 		return InterviewerOnly
 	}
 	segs := strings.Split(name, "/")
@@ -65,9 +68,14 @@ func (c *Classifier) Classify(name string) Class {
 	return InterviewerOnly
 }
 
-func underInterviewerDir(name string) bool {
+func underProtectedDir(name string) bool {
 	name = path.Clean(name)
-	return name == InterviewerDir || strings.HasPrefix(name, InterviewerDir+"/")
+	for _, dir := range ProtectedDirs {
+		if name == dir || strings.HasPrefix(name, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // Globs returns the source form of the compiled candidate globs.
@@ -109,7 +117,7 @@ func (c *Classifier) Scan(fsys fs.FS) (*Scan, error) {
 			s.Interviewer = append(s.Interviewer, p)
 			return nil
 		}
-		if underInterviewerDir(p) {
+		if underProtectedDir(p) {
 			s.Interviewer = append(s.Interviewer, p)
 			return nil
 		}

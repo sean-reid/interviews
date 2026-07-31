@@ -36,6 +36,18 @@ interviews describe <problem> --seed calm-bison-0731 --set scale=7
 The same seed always resolves to the same variant, so a session can be
 reproduced exactly when grading it later.
 
+Debugging problems run in disposable local environments (kind or docker
+compose, per the problem's env spec):
+
+```sh
+interviews env up <problem> --seed <id>     # healthy environment
+interviews break <problem> --seed <id>      # inject the variant's fault pack
+interviews fault status <problem> --seed <id>
+interviews fault fix <problem> [fault] --seed <id>
+interviews env down <problem> --seed <id>
+interviews prove <problem>                  # CI gate: every fault breaks, every fix works
+```
+
 ## Content
 
 Problems live under `content/<type>/<problem>/`, each with a `problem.yaml`
@@ -43,4 +55,4 @@ manifest, a `candidate/` tree, and an `interviewer/` tree. Visibility is
 fail-closed: a file reaches candidates only if the manifest's `visibility`
 globs name it, and nothing under `interviewer/` can be exposed at all.
 
-More commands (prove, bundle, score, redteam) land as the platform grows.
+More commands (bundle, score, redteam) land as the platform grows.

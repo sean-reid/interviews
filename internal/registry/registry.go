@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sean-reid/interviews/internal/content"
+	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 	"github.com/sean-reid/interviews/internal/variant"
 )
@@ -104,6 +105,12 @@ func (r *Registry) loadType(fsys fs.FS, t taxonomy.Type) error {
 			for _, ti := range variant.CheckTemplates(sub, problem.Scan.Candidate, declared) {
 				r.findings = append(r.findings, Finding{Dir: dir,
 					Issue: content.Issue{Path: ti.Path, Msg: ti.Msg}})
+			}
+			if t == taxonomy.Debugging {
+				_, scenarioIssues := debug.LoadScenario(problem)
+				for _, i := range scenarioIssues {
+					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
+				}
 			}
 		}
 		entry := &Entry{Dir: dir, Type: t, Problem: problem}

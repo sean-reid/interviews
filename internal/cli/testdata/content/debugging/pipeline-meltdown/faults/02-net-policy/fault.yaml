@@ -1,0 +1,5 @@
+id: 02-net-policy
+title: NetworkPolicy label mismatch
+tier: hard
+packs: [pack-b]
+masks: [01-image-typo]

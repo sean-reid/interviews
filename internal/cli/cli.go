@@ -23,6 +23,7 @@ Commands:
   break      inject the variant's fault pack
   fault      status | fix injected faults (interviewer only)
   prove      re-prove every fault: inject breaks, documented fix works
+  grade      sheet | score | hint: rubric-first grading artifacts
   version    print the version
   help       show this help
 
@@ -40,6 +41,7 @@ var commands = map[string]command{
 	"break":    cmdBreak,
 	"fault":    cmdFault,
 	"prove":    cmdProve,
+	"grade":    cmdGrade,
 	"version":  cmdVersion,
 	"help":     cmdHelp,
 	"-h":       cmdHelp,

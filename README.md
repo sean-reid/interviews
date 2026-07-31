@@ -55,4 +55,16 @@ manifest, a `candidate/` tree, and an `interviewer/` tree. Visibility is
 fail-closed: a file reaches candidates only if the manifest's `visibility`
 globs name it, and nothing under `interviewer/` can be exposed at all.
 
-More commands (bundle, score, redteam) land as the platform grows.
+Grading is rubric-first: a shared resourcefulness rubric (problem
+decomposition, evidence over guessing, tool and AI wrangling, adaptation,
+communication) with per-level calibration bands grades every interview type;
+objective completion is recorded but secondary. AI use is expected and scored
+on its own dimension.
+
+```sh
+interviews grade sheet <problem> --seed <id> -o sheet.md
+interviews grade score <problem> --seed <id>    # fill the objective table from the live env
+interviews grade hint <problem> "text" --seed <id> --minute 17
+```
+
+More commands (bundle, redteam) land as the platform grows.

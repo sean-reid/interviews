@@ -1,0 +1,72 @@
+version: 1
+
+# The rubric measures resourcefulness, never recall. Completion is recorded
+# in the objective section but is secondary signal by design: problems are
+# sized so nobody finishes, and candidates may use any resource, including
+# AI tools, with how they use them scored on its own dimension.
+
+dimensions:
+  - key: decomposition
+    title: Problem decomposition
+    question: Did they cut the problem into checkable pieces and order them sensibly?
+    anchors:
+      1: Random walk; touches whatever is in front of them; no visible model of the system.
+      2: Some structure, but pursues one hypothesis long after evidence has moved on.
+      3: Forms hypotheses, checks the cheap ones first, prunes dead branches quickly.
+      4: Maintains an explicit map of what is ruled out, what is blocked on what, and works the frontier.
+  - key: evidence
+    title: Evidence over guessing
+    question: Do they act on what logs, data, and tools actually say, or on what they expect?
+    anchors:
+      1: Changes things without reading the error; repeats failed actions.
+      2: Reads output but cherry-picks what confirms the current guess.
+      3: Quotes the evidence when explaining a move; verifies fixes did what they claim.
+      4: Distinguishes symptom from mechanism; designs the observation that discriminates between hypotheses.
+  - key: wrangling
+    title: Tool and AI wrangling
+    question: How well do they drive their tools, including AI assistants, and how do they treat the output?
+    anchors:
+      1: Accepts tool or AI output uncritically; pastes suggestions without reading them; stuck when the tool is wrong.
+      2: Uses tools competently but trusts confident-sounding output over primary evidence.
+      3: Gives assistants precise context, checks claims against the system before acting, notices when output is stale or wrong.
+      4: Orchestrates tools deliberately; uses AI to widen the search, then verifies independently; corrects the assistant and extracts value anyway.
+  - key: adaptation
+    title: Adaptation
+    question: What happens when new information, a hint, or a requirement change arrives?
+    anchors:
+      1: Flails or ignores it; the plan does not change.
+      2: Absorbs it slowly; needs the implication spelled out.
+      3: Integrates it and reprioritizes visibly.
+      4: Anticipates it; the plan already had room for the surprise.
+  - key: communication
+    title: Communication
+    question: Can you follow their reasoning in real time or from their writing alone?
+    anchors:
+      1: Silent or narrates keystrokes, not reasoning.
+      2: Explains when asked; assumptions stay implicit.
+      3: States hypotheses, assumptions, and what would change their mind, unprompted.
+      4: You could grade the session from the narration alone; wrong turns are announced as cheerfully as right ones.
+
+# What a typical pass looks like per calibration band. One rubric grades the
+# whole ladder; the problem's manifest declares which bands it can grade.
+levels:
+  entry: Mostly 2s with a 3 somewhere; method over polish. Finishing anything is a bonus, not an expectation.
+  mid: 3s on evidence and decomposition; tool use competent; narrates when reminded.
+  senior: 3s across the board or better; wrangling at 3+; recovers from at least one dead end without a hint.
+  staff: At least two 4s including decomposition or evidence; hints integrate instantly; the map of the problem is explicit.
+  principal: 4s dominate; the session teaches the interviewer something about the problem.
+
+# Evidence prompts per interview type: where to look when scoring.
+types:
+  debugging:
+    - Which faults did they identify versus fix, and did they name root causes or just make symptoms move?
+    - Replay moments where a check surprised them; what did they do in the next two minutes?
+    - "How did they use AI: what did they paste into it, and did they verify what came back?"
+  takehome:
+    - "The stopping-point writeup: does it honestly describe what is unfinished and what they would do next?"
+    - In review, can they defend each decision without the artifact in front of them?
+    - Which parts read as generated, and do they understand those parts when probed?
+  sysdesign:
+    - Did they find the planted contradiction in the constraints, and what did they do about it?
+    - "How did the design survive the curveballs: adapted, patched, or collapsed?"
+    - Do the figures match the words, and do both match the constraint sheet?

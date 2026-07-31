@@ -15,7 +15,7 @@ import (
 
 // engineFor loads a debugging problem and builds its engine. Every
 // debugging command funnels through here.
-func engineFor(contentRoot, problemID, seed string, sets []string, stdout, stderr io.Writer) (*debug.Engine, error) {
+func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdout, stderr io.Writer) (*debug.Engine, error) {
 	if seed == "" {
 		return nil, fmt.Errorf("--seed is required (the interview id; it selects the variant)")
 	}
@@ -47,25 +47,26 @@ func engineFor(contentRoot, problemID, seed string, sets []string, stdout, stder
 		return nil, err
 	}
 	runner := &debug.ExecRunner{Stdout: stdout, Stderr: stderr}
-	return debug.NewEngine(dir, scenario, v, runner, stdout, "")
+	return debug.NewEngine(dir, scenario, v, runner, stdout, workdir)
 }
 
 // debugFlags parses the flags every debugging command shares.
-func debugFlags(name string, args []string, stderr io.Writer) (contentRoot, seed string, sets []string, positional []string, ok bool) {
+func debugFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, workdir string, sets []string, positional []string, ok bool) {
 	fs, content := newFlagSet(name, stderr)
 	seedFlag := fs.String("seed", "", "interview id selecting the variant")
+	workdirFlag := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
 	var setFlags repeatedFlag
 	fs.Var(&setFlags, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return "", "", nil, nil, false
+		return "", "", "", nil, nil, false
 	}
-	return *content, *seedFlag, setFlags, pos, true
+	return *content, *seedFlag, *workdirFlag, setFlags, pos, true
 }
 
 func cmdEnv(args []string, stdout, stderr io.Writer) int {
 	usage := "usage: interviews env up|verify|down <problem-id> --seed <id> [--set k=v]"
-	contentRoot, seed, sets, pos, ok := debugFlags("env", args, stderr)
+	contentRoot, seed, workdir, sets, pos, ok := debugFlags("env", args, stderr)
 	if !ok {
 		return 2
 	}
@@ -78,7 +79,7 @@ func cmdEnv(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
-	e, err := engineFor(contentRoot, problemID, seed, sets, stdout, stderr)
+	e, err := engineFor(contentRoot, problemID, seed, workdir, sets, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews env: %v\n", err)
 		return 1
@@ -102,7 +103,7 @@ func cmdEnv(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdBreak(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, sets, pos, ok := debugFlags("break", args, stderr)
+	contentRoot, seed, workdir, sets, pos, ok := debugFlags("break", args, stderr)
 	if !ok {
 		return 2
 	}
@@ -110,7 +111,7 @@ func cmdBreak(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: interviews break <problem-id> --seed <id>")
 		return 2
 	}
-	e, err := engineFor(contentRoot, pos[0], seed, sets, stdout, stderr)
+	e, err := engineFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews break: %v\n", err)
 		return 1
@@ -124,7 +125,7 @@ func cmdBreak(args []string, stdout, stderr io.Writer) int {
 
 func cmdFault(args []string, stdout, stderr io.Writer) int {
 	usage := "usage: interviews fault status|fix <problem-id> [fault-id] --seed <id>"
-	contentRoot, seed, sets, pos, ok := debugFlags("fault", args, stderr)
+	contentRoot, seed, workdir, sets, pos, ok := debugFlags("fault", args, stderr)
 	if !ok {
 		return 2
 	}
@@ -137,7 +138,7 @@ func cmdFault(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
-	e, err := engineFor(contentRoot, problemID, seed, sets, stdout, stderr)
+	e, err := engineFor(contentRoot, problemID, seed, workdir, sets, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews fault: %v\n", err)
 		return 1
@@ -197,7 +198,7 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	for _, pack := range packs {
-		e, err := engineFor(*contentRoot, problemID, "prove-"+pack,
+		e, err := engineFor(*contentRoot, problemID, "prove-"+pack, "",
 			[]string{debug.PackParam + "=" + pack}, stdout, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "interviews prove: %v\n", err)

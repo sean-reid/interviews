@@ -60,11 +60,10 @@ type FaultStatus struct {
 // the default cache location from the problem and seed.
 func NewEngine(problemDir string, s *Scenario, v *variant.Resolved, r Runner, out io.Writer, workdir string) (*Engine, error) {
 	if workdir == "" {
-		cache, err := os.UserCacheDir()
-		if err != nil {
+		var err error
+		if workdir, err = DefaultWorkdir(v); err != nil {
 			return nil, err
 		}
-		workdir = filepath.Join(cache, "interviews", envName(v))
 	}
 	e := &Engine{
 		Scenario: s, Variant: v, Runner: r, Out: out,
@@ -80,6 +79,16 @@ func NewEngine(problemDir string, s *Scenario, v *variant.Resolved, r Runner, ou
 	}
 	e.provider = p
 	return e, nil
+}
+
+// DefaultWorkdir is where a variant's session state lives unless a caller
+// overrides it; grading reads scores and hints from the same place.
+func DefaultWorkdir(v *variant.Resolved) (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cache, "interviews", envName(v)), nil
 }
 
 // envName is the stable per-problem-per-interview environment name, safe

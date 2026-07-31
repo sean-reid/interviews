@@ -31,12 +31,19 @@ func (e *Engine) Prove(ctx context.Context) error {
 		}
 	}
 
-	e.logf("== full cycle: break all, fix all, verify")
+	e.logf("== full cycle: break all, verify fails, fix all, verify passes")
 	if err := e.Break(ctx); err != nil {
 		return err
 	}
 	if err := e.sleep(ctx, e.settleFor(faults...)); err != nil {
 		return err
+	}
+	// The pack has to take the app down. Without this the whole gate passes
+	// for a scenario whose verify script cannot fail, which makes every
+	// per-fault check the only thing standing between a rotted exercise and
+	// a green build.
+	if err := e.Verify(ctx); err == nil {
+		return fmt.Errorf("the whole pack is injected and verify still passes: verify does not detect this scenario breaking")
 	}
 	if err := e.Fix(ctx, ""); err != nil {
 		return err

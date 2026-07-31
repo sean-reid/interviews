@@ -260,6 +260,9 @@ func TestProveHappyPath(t *testing.T) {
 	// The final full cycle runs inject+fix again; queue drains to pass.
 	r.on("01-image-typo/check.sh", errors.New("broken"), nil)
 	r.on("02-net-policy/check.sh", errors.New("broken"), nil)
+	// Verify passes for the healthy environment, fails once the whole pack is
+	// injected, then passes again after every fix: a real scenario's shape.
+	r.on("env/verify.sh", nil, errors.New("app down"), nil)
 	if err := e.Prove(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -294,12 +297,24 @@ func TestProveWaitsForConvergence(t *testing.T) {
 	broken := errors.New("broken")
 	// Post-inject broken, then two slow polls, then fixed.
 	r.on("01-image-typo/check.sh", broken, broken, broken, nil)
+	r.on("env/verify.sh", nil, errors.New("app down"), nil)
 	e.FixTimeout = 5e9 // 5s in nanoseconds; polls are instant with 0 interval
 	if err := e.Prove(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(r.callsMatching("01-image-typo/check.sh")); got < 4 {
 		t.Errorf("check polled %d times, want >= 4", got)
+	}
+}
+
+// The gate must refuse a scenario whose verify script cannot fail, because
+// then nothing proves the exercise still breaks.
+func TestProveRejectsVerifyThatNeverFails(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	r.on("01-image-typo/check.sh", errors.New("broken"), nil)
+	err := e.Prove(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "verify still passes") {
+		t.Errorf("Prove = %v, want a verify-cannot-fail error", err)
 	}
 }
 

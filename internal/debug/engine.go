@@ -239,10 +239,17 @@ func (e *Engine) Up(ctx context.Context) error {
 		return err
 	}
 	e.logf("environment healthy")
+	// Bringing an environment up again is the natural response to a verify
+	// timeout, and it must not erase the record of faults that are still in
+	// there: a fault the app survives leaves verify passing.
+	injected := []string{}
+	if prev, err := e.loadState(); err == nil && prev.Pack == pack {
+		injected = prev.Injected
+	}
 	return e.saveState(&State{
 		Problem: e.Variant.Problem, Seed: e.Variant.InterviewID,
 		Overrides: e.Variant.Overrides, Pack: pack,
-		Injected: []string{}, Provider: e.provider.Name(), CreatedAt: time.Now(),
+		Injected: injected, Provider: e.provider.Name(), CreatedAt: time.Now(),
 	})
 }
 
@@ -285,15 +292,24 @@ func (e *Engine) Break(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("no environment state; run env up first: %w", err)
 	}
-	faults := e.Scenario.PackFaults(st.Pack)
-	for _, f := range faults {
+	// Record each fault as it lands. A pack that fails partway has still
+	// broken the environment, and a state file that forgets which faults are
+	// in there leaves nothing able to check or fix them.
+	st.Injected = nil
+	for _, f := range e.Scenario.PackFaults(st.Pack) {
 		e.logf("inject %s (%s)", f.Spec.ID, f.Spec.Tier)
 		if err := e.script(ctx, f.Script("inject.sh"), nil); err != nil {
+			if saveErr := e.saveState(st); saveErr != nil {
+				return fmt.Errorf("inject %s: %w (and recording progress failed: %v)", f.Spec.ID, err, saveErr)
+			}
 			return fmt.Errorf("inject %s: %w", f.Spec.ID, err)
 		}
 		st.Injected = append(st.Injected, f.Spec.ID)
+		if err := e.saveState(st); err != nil {
+			return err
+		}
 	}
-	return e.saveState(st)
+	return nil
 }
 
 // Status checks every injected fault.
@@ -364,7 +380,13 @@ func (e *Engine) saveState(st *State) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(e.statePath(), raw, 0o644)
+	// Timers read this file every 30 seconds while commands write it, so
+	// swap it into place rather than truncating it in front of a reader.
+	tmp := e.statePath() + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, e.statePath())
 }
 
 func (e *Engine) loadState() (*State, error) { return LoadState(e.Workdir) }

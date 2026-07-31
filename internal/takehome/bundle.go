@@ -169,7 +169,7 @@ func gitInit(dir string) error {
 		{"init", "-q", "-b", "main"},
 		{"add", "-A"},
 		{"-c", "user.name=candidate", "-c", "user.email=candidate@localhost",
-			"-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial drop"},
+			"-c", "commit.gpgsign=false", "-c", "core.hooksPath=", "-c", "core.excludesFile=", "commit", "-q", "-m", "initial drop"},
 	}
 	for _, args := range steps {
 		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

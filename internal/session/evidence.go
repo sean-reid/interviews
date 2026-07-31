@@ -97,7 +97,11 @@ func RefreshScore(ctx context.Context, e *debug.Engine) (*grading.Score, error) 
 func bundle(workdir, dest string) (err error) {
 	// The archive carries the session tokens and the candidate service
 	// account token, so it must not be readable beyond its owner.
-	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// Build beside the target and swap it in, so a pass that fails partway
+	// leaves the last good bundle intact. The sync timer reruns every two
+	// minutes, and a truncated archive is worse than a stale one.
+	tmp := dest + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -108,6 +112,12 @@ func bundle(workdir, dest string) (err error) {
 			if cerr := c.Close(); err == nil {
 				err = cerr
 			}
+		}
+		if err == nil {
+			err = os.Rename(tmp, dest)
+		}
+		if err != nil {
+			_ = os.Remove(tmp)
 		}
 	}()
 	for _, name := range evidenceFiles {

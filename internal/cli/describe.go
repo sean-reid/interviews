@@ -95,6 +95,12 @@ func paramSummaries(specs map[string]content.ParamSpec) map[string]string {
 		case content.Choice:
 			desc = "choice of " + strings.Join(s.Of, ", ")
 		case content.Int:
+			// validate rejects an int without bounds, but describe runs on
+			// content that has not passed validation yet.
+			if s.Min == nil || s.Max == nil {
+				desc = "int (bounds missing)"
+				break
+			}
 			desc = fmt.Sprintf("int %d..%d", *s.Min, *s.Max)
 		case content.String:
 			desc = "string"

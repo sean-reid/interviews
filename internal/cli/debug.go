@@ -231,6 +231,11 @@ func provePacks(contentRoot, problemID, only string, stderr io.Writer) ([]string
 		return nil, 1
 	}
 	packs := entry.Problem.Manifest.Params[debug.PackParam].Of
+	if len(packs) == 0 {
+		fmt.Fprintf(stderr, "interviews: %s declares no %s values, so there is nothing to prove\n",
+			problemID, debug.PackParam)
+		return nil, 1
+	}
 	if only == "" {
 		return packs, 0
 	}

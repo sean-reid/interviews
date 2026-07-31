@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/sean-reid/interviews/compare/v0.1.0...v0.2.0) (2026-07-31)
+
+
+### Features
+
+* deliver system design problems as candidate bundles ([#44](https://github.com/sean-reid/interviews/issues/44)) ([f0fd19e](https://github.com/sean-reid/interviews/commit/f0fd19e0bbbacbb670bda86505b93f8849edef3e))
+* widen the variant space for both debugging scenarios ([#48](https://github.com/sean-reid/interviews/issues/48)) ([fbe1bf4](https://github.com/sean-reid/interviews/commit/fbe1bf4fc24339a0faf835380b24c43197bad5c0))
+
+
+### Bug Fixes
+
+* close eight engine and CLI correctness issues ([#46](https://github.com/sean-reid/interviews/issues/46)) ([b87ff31](https://github.com/sean-reid/interviews/commit/b87ff314632f60733bfd01e31c8ec9a69d0593d2))
+* make session start idempotent and verify the listeners came up ([#42](https://github.com/sean-reid/interviews/issues/42)) ([0a1e291](https://github.com/sean-reid/interviews/commit/0a1e2915d6a7bcb6d08b2bb33f31be47a8b0660f))
+* run the candidate's shell as the candidate ([#47](https://github.com/sean-reid/interviews/issues/47)) ([7ec7759](https://github.com/sean-reid/interviews/commit/7ec775985b4d82449c3570ac2934a20cde5e7cfc))
+
 ## 0.1.0 (2026-07-31)
 
 

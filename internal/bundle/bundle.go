@@ -1,10 +1,14 @@
-// Package takehome turns a take-home problem into a candidate bundle: the
-// candidate-visible files rendered for one variant, an ABOUT.md, and a
-// fresh git history. The bundle is the only artifact that ever leaves the
-// content tree, so after writing one the engine re-classifies every output
-// file and greps for interviewer-only markers; any hit removes the whole
-// bundle (see gate.go).
-package takehome
+// Package bundle turns a problem into a candidate drop: the
+// candidate-visible files rendered for one variant, plus the front page that
+// orients whoever opens it. The bundle is the only artifact that ever leaves
+// the content tree, so after writing one the engine re-classifies every
+// output file and greps for interviewer-only markers; any hit removes the
+// whole bundle (see gate.go).
+//
+// Each interview type delivered as files declares a spec in about.go. A type
+// with no spec cannot be bundled, which is how debugging problems stay out:
+// they are delivered as a live session, not as a drop.
+package bundle
 
 import (
 	"bytes"
@@ -19,43 +23,18 @@ import (
 	"text/template"
 
 	"github.com/sean-reid/interviews/internal/content"
-	"github.com/sean-reid/interviews/internal/taxonomy"
 	"github.com/sean-reid/interviews/internal/variant"
 )
 
 // AboutName is the orientation file written at the bundle root.
 const AboutName = "ABOUT.md"
 
-// aboutText orients the candidate without exposing anything about how the
-// problem is parameterized or graded.
-const aboutText = `# {{.Title}}
-
-Start with candidate/brief.md; it states the task.
-
-Spend about {{.Hours}} hours. The problem is deliberately larger than that
-budget, so nobody is expected to finish; use the time well and stop when it
-runs out. When you stop, write STOPPING-POINT.md at the root of this
-repository: what works, what does not, and what you would do next and why.
-{{- if .HasHarness}}
-
-The harness/ directory holds the tooling for exercising your solution; its
-files describe how to run it.
-{{- end}}
-
-You may use any resource you like, including AI tools.
-
-When you are done, send the repository back as a zip archive or a git
-bundle, for example: git bundle create takehome.bundle --all.
-`
-
-// Bundle renders p's candidate-visible files for v into outPath: a
-// directory, or a gzipped tarball when the path ends in .tar.gz or .tgz.
-// The output is a git repository with a single history-free commit.
-func Bundle(p *content.Problem, v *variant.Resolved, outPath string) error {
-	// The one type gate for bundling. SysDesign bundles hook in here when
-	// that engine lands.
-	if p.Manifest.Type != taxonomy.TakeHome {
-		return fmt.Errorf("%s is a %s problem; only take-home problems bundle",
+// Write renders p's candidate-visible files for v into outPath: a directory,
+// or a gzipped tarball when the path ends in .tar.gz or .tgz.
+func Write(p *content.Problem, v *variant.Resolved, outPath string) error {
+	sp, ok := specs[p.Manifest.Type]
+	if !ok {
+		return fmt.Errorf("%s is a %s problem; only take-home and system design problems bundle",
 			p.Manifest.ID, p.Manifest.Type)
 	}
 
@@ -63,13 +42,13 @@ func Bundle(p *content.Problem, v *variant.Resolved, outPath string) error {
 		if _, err := os.Stat(outPath); err == nil {
 			return fmt.Errorf("output %s already exists", outPath)
 		}
-		tmp, err := os.MkdirTemp("", "takehome-bundle-")
+		tmp, err := os.MkdirTemp("", "interviews-bundle-")
 		if err != nil {
 			return err
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		dir := filepath.Join(tmp, p.Manifest.ID)
-		if err := writeBundle(p, v, dir); err != nil {
+		if err := writeBundle(p, v, dir, sp); err != nil {
 			return err
 		}
 		return writeTarball(dir, p.Manifest.ID, outPath)
@@ -78,7 +57,7 @@ func Bundle(p *content.Problem, v *variant.Resolved, outPath string) error {
 	if err := ensureEmptyDir(outPath); err != nil {
 		return err
 	}
-	if err := writeBundle(p, v, outPath); err != nil {
+	if err := writeBundle(p, v, outPath, sp); err != nil {
 		_ = os.RemoveAll(outPath) // never leave a partial bundle behind
 		return err
 	}
@@ -87,15 +66,17 @@ func Bundle(p *content.Problem, v *variant.Resolved, outPath string) error {
 
 // writeBundle assembles the bundle in dir and runs the leak gate over the
 // finished tree. The caller removes dir on error.
-func writeBundle(p *content.Problem, v *variant.Resolved, dir string) error {
+func writeBundle(p *content.Problem, v *variant.Resolved, dir string, sp spec) error {
 	if err := writeFiles(p, v, dir); err != nil {
 		return err
 	}
-	if err := writeAbout(p, dir); err != nil {
+	if err := writeAbout(p, dir, sp); err != nil {
 		return err
 	}
-	if err := gitInit(dir); err != nil {
-		return err
+	if sp.gitInit {
+		if err := gitInit(dir); err != nil {
+			return err
+		}
 	}
 	return checkGate(dir, p.Classifier)
 }
@@ -132,7 +113,7 @@ func writeFiles(p *content.Problem, v *variant.Resolved, dir string) error {
 	return nil
 }
 
-func writeAbout(p *content.Problem, dir string) error {
+func writeAbout(p *content.Problem, dir string, sp spec) error {
 	hasHarness := false
 	for _, name := range p.Scan.Candidate {
 		if strings.Contains(name, "harness/") {
@@ -140,7 +121,7 @@ func writeAbout(p *content.Problem, dir string) error {
 			break
 		}
 	}
-	tmpl, err := template.New(AboutName).Parse(aboutText)
+	tmpl, err := template.New(AboutName).Parse(sp.about)
 	if err != nil {
 		return err
 	}

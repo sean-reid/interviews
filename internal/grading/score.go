@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -84,9 +85,21 @@ func AppendHint(workdir string, h Hint) error {
 	return os.WriteFile(filepath.Join(workdir, HintsFile), raw, 0o644)
 }
 
-// LoadHints reads the hints ledger; empty without error when none exists.
+// LoadHints reads a session workdir's hints ledger; empty without error when
+// none exists.
 func LoadHints(workdir string) ([]Hint, error) {
-	raw, err := os.ReadFile(filepath.Join(workdir, HintsFile))
+	return LoadHintsFrom(filepath.Join(workdir, HintsFile))
+}
+
+// LoadHintsFrom reads a ledger named directly, or the ledger inside a
+// directory. An interviewer logs hints where they are sitting, which is not
+// where the rest of the session's evidence lands, so grading has to be able
+// to name the ledger on its own.
+func LoadHintsFrom(path string) ([]Hint, error) {
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		path = filepath.Join(path, HintsFile)
+	}
+	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -95,7 +108,24 @@ func LoadHints(workdir string) ([]Hint, error) {
 	}
 	var hints []Hint
 	if err := json.Unmarshal(raw, &hints); err != nil {
-		return nil, fmt.Errorf("%s: %w", HintsFile, err)
+		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}
 	return hints, nil
+}
+
+// MergeHints combines ledgers into session order, dropping hints that appear
+// in more than one so naming the same ledger twice cannot double it up.
+func MergeHints(sets ...[]Hint) []Hint {
+	var out []Hint
+	seen := map[Hint]bool{}
+	for _, set := range sets {
+		for _, h := range set {
+			if !seen[h] {
+				seen[h] = true
+				out = append(out, h)
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Minute < out[j].Minute })
+	return out
 }

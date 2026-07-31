@@ -154,3 +154,14 @@ func (r *Registry) Get(id string) (*Entry, bool) {
 
 // Findings returns every validation issue found at load time.
 func (r *Registry) Findings() []Finding { return r.findings }
+
+// FindingsFor returns the findings that belong to one problem directory.
+func (r *Registry) FindingsFor(dir string) []Finding {
+	var out []Finding
+	for _, f := range r.findings {
+		if f.Dir == dir {
+			out = append(out, f)
+		}
+	}
+	return out
+}

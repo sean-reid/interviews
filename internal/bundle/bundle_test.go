@@ -1,4 +1,4 @@
-package takehome
+package bundle
 
 import (
 	"archive/tar"
@@ -89,7 +89,7 @@ func TestBundleDir(t *testing.T) {
 	requireGit(t)
 	p := loadProblem(t, baseFiles())
 	out := filepath.Join(t.TempDir(), "out")
-	if err := Bundle(p, resolve(t, p), out); err != nil {
+	if err := Write(p, resolve(t, p), out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -161,7 +161,7 @@ func TestBundleWithoutHarnessOmitsNote(t *testing.T) {
 	delete(files, "harness/run.sh")
 	p := loadProblem(t, files) // the unmatched harness glob is only a warning
 	out := filepath.Join(t.TempDir(), "out")
-	if err := Bundle(p, resolve(t, p), out); err != nil {
+	if err := Write(p, resolve(t, p), out); err != nil {
 		t.Fatal(err)
 	}
 	about, err := os.ReadFile(filepath.Join(out, AboutName))
@@ -177,7 +177,7 @@ func TestBundleTarballRoundTrips(t *testing.T) {
 	requireGit(t)
 	p := loadProblem(t, baseFiles())
 	out := filepath.Join(t.TempDir(), "drop.tar.gz")
-	if err := Bundle(p, resolve(t, p), out); err != nil {
+	if err := Write(p, resolve(t, p), out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -235,25 +235,30 @@ func TestBundleTarballRoundTrips(t *testing.T) {
 	}
 }
 
-func TestBundleRejectsOtherTypes(t *testing.T) {
+// Debugging is delivered as a live session; there is nothing to hand over as
+// files, so it must not reach the bundle writer at all.
+func TestBundleRejectsDebugging(t *testing.T) {
 	p := loadProblem(t, baseFiles())
-	for _, typ := range []taxonomy.Type{taxonomy.Debugging, taxonomy.SysDesign} {
-		other := *p
-		other.Manifest.Type = typ
-		err := Bundle(&other, resolve(t, p), filepath.Join(t.TempDir(), "out"))
-		if err == nil || !strings.Contains(err.Error(), "only take-home") {
-			t.Errorf("%s: err = %v, want a type refusal", typ, err)
-		}
+	other := *p
+	other.Manifest.Type = taxonomy.Debugging
+	err := Write(&other, resolve(t, p), filepath.Join(t.TempDir(), "out"))
+	if err == nil || !strings.Contains(err.Error(), "only take-home and system design") {
+		t.Errorf("err = %v, want a type refusal", err)
 	}
 }
 
-// bundleExpectingGate runs Bundle, requires it to fail mentioning wantErr,
+// bundleExpectingGate runs Write, requires it to fail mentioning wantErr,
 // and requires the partial output to have been removed.
 func bundleExpectingGate(t *testing.T, p *content.Problem, wantErr string) {
 	t.Helper()
 	requireGit(t)
+	gateFor(t, p, resolve(t, p), wantErr)
+}
+
+func gateFor(t *testing.T, p *content.Problem, v *variant.Resolved, wantErr string) {
+	t.Helper()
 	out := filepath.Join(t.TempDir(), "out")
-	err := Bundle(p, resolve(t, p), out)
+	err := Write(p, v, out)
 	if err == nil || !strings.Contains(err.Error(), wantErr) {
 		t.Fatalf("err = %v, want mention of %q", err, wantErr)
 	}
@@ -308,7 +313,7 @@ func TestBundleRefusesNonEmptyDir(t *testing.T) {
 	if err := os.WriteFile(keep, []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := Bundle(p, resolve(t, p), out)
+	err := Write(p, resolve(t, p), out)
 	if err == nil || !strings.Contains(err.Error(), "not empty") {
 		t.Fatalf("err = %v, want a not-empty refusal", err)
 	}
@@ -321,7 +326,7 @@ func TestBundleAcceptsEmptyExistingDir(t *testing.T) {
 	requireGit(t)
 	p := loadProblem(t, baseFiles())
 	out := t.TempDir()
-	if err := Bundle(p, resolve(t, p), out); err != nil {
+	if err := Write(p, resolve(t, p), out); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -332,34 +337,8 @@ func TestBundleRefusesExistingTarball(t *testing.T) {
 	if err := os.WriteFile(out, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := Bundle(p, resolve(t, p), out)
+	err := Write(p, resolve(t, p), out)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("err = %v, want an already-exists refusal", err)
-	}
-}
-
-func TestValidate(t *testing.T) {
-	if issues := Validate(loadProblem(t, baseFiles())); len(issues) != 0 {
-		t.Errorf("valid problem flagged: %v", issues)
-	}
-
-	files := baseFiles()
-	delete(files, "interviewer/probes.md")
-	issues := Validate(loadProblem(t, files))
-	if len(issues) != 1 || issues[0].Path != ProbesPath {
-		t.Errorf("missing probes not flagged: %v", issues)
-	}
-
-	files = baseFiles()
-	files["candidate/brief.md"] = &fstest.MapFile{Data: []byte("Just do the task.")}
-	issues = Validate(loadProblem(t, files))
-	if len(issues) != 1 || !strings.Contains(issues[0].Msg, "stopping-point") {
-		t.Errorf("brief without stopping point not flagged: %v", issues)
-	}
-
-	// Either spelling of the writeup counts, in any case.
-	files["candidate/brief.md"] = &fstest.MapFile{Data: []byte("Note your Stopping Point when done.")}
-	if issues := Validate(loadProblem(t, files)); len(issues) != 0 {
-		t.Errorf("stopping point spelling rejected: %v", issues)
 	}
 }

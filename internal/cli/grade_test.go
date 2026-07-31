@@ -78,6 +78,62 @@ func TestGradeSheetEmbedsScoreAndHints(t *testing.T) {
 	}
 }
 
+// The interviewer has no shell on the session host, so hints are logged into
+// a workdir on their own machine while the score arrives with the evidence.
+// The sheet has to bring the two together.
+func TestGradeSheetMergesHintsLoggedElsewhere(t *testing.T) {
+	evidence := stateFor(t, "01-image-typo")
+	if code, _, stderr := run(t, "grade", "score", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--set", "fault_pack=pack-b",
+		"--workdir", evidence); code != 0 {
+		t.Fatalf("grade score failed: %s", stderr)
+	}
+
+	local := t.TempDir()
+	for _, hint := range [][2]string{{"9", "asked what the logs said"}, {"31", "pointed at the network policy"}} {
+		if code, _, stderr := run(t, "grade", "hint", "pipeline-meltdown", hint[1],
+			"--content", goodRoot, "--seed", "test-seed", "--minute", hint[0],
+			"--workdir", local); code != 0 {
+			t.Fatalf("grade hint failed: %s", stderr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(evidence, grading.HintsFile)); err == nil {
+		t.Fatal("hints landed in the evidence workdir; this test no longer covers the split")
+	}
+
+	code, stdout, stderr := run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", evidence, "--hints", local)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		"| 01-image-typo: Image tag typo | easy | yes | | |",
+		"| 9 | asked what the logs said |",
+		"| 31 | pointed at the network policy |",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("sheet missing %q", want)
+		}
+	}
+	if strings.Index(stdout, "minute 31") > 0 && strings.Index(stdout, "| 31 |") < strings.Index(stdout, "| 9 |") {
+		t.Error("hints out of session order")
+	}
+
+	// Naming the ledger the evidence already carries must not double it.
+	if err := os.Rename(filepath.Join(local, grading.HintsFile),
+		filepath.Join(evidence, grading.HintsFile)); err != nil {
+		t.Fatal(err)
+	}
+	_, stdout, stderr = run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", evidence, "--hints", evidence)
+	if stderr != "" {
+		t.Fatalf("stderr %q", stderr)
+	}
+	if got := strings.Count(stdout, "asked what the logs said"); got != 1 {
+		t.Errorf("hint appears %d times, want 1", got)
+	}
+}
+
 func TestGradeSheetToFile(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "sheet.md")
 	code, stdout, stderr := run(t, "grade", "sheet", "pipeline-meltdown",

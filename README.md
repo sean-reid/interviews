@@ -92,6 +92,13 @@ interviewer gets a probe pack, reference notes covering several designs that all
 and scripted curveballs to introduce mid-review, because a design that only survives
 its original assumptions is the thing worth finding out about.
 
+The candidate's half is delivered the same way, through the same leak gate. The drop
+carries no git history, because the deliverable is a document rather than a repository:
+
+```sh
+interviews bundle <problem> --seed <id> -o design-dir    # or -o design.tar.gz
+```
+
 ## Content
 
 Problems live under `content/<type>/<problem>/`, each with a `problem.yaml` manifest,
@@ -111,8 +118,12 @@ AI use is expected and scored on its own dimension.
 ```sh
 interviews grade sheet <problem> --seed <id> -o sheet.md
 interviews grade score <problem> --seed <id>    # fill the objective table from the live env
-interviews grade hint <problem> "text" --seed <id> --minute 17
+interviews grade hint <problem> "text" --seed <id> --minute 17 --workdir <dir>
 ```
+
+Hints are logged from wherever the interviewer is sitting, which for a remote session is
+not where the evidence lands. `grade sheet --hints <dir>` merges that ledger into the
+sheet, so a session host never needs to be reachable to record one.
 
 ## Calibration
 

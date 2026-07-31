@@ -1,4 +1,4 @@
-package takehome
+package bundle
 
 import (
 	"archive/tar"
@@ -54,8 +54,9 @@ func checkGate(dir string, c *leak.Classifier) error {
 		}
 	}
 	for _, name := range leaks {
-		// The bundle adds exactly two things beyond the candidate files:
-		// ABOUT.md and the git repository. Everything else is fatal.
+		// The bundle adds at most two things beyond the candidate files:
+		// ABOUT.md and, for a repository drop, the git directory. Everything
+		// else is fatal.
 		if name == AboutName || strings.HasPrefix(name, ".git/") {
 			continue
 		}

@@ -1,6 +1,7 @@
 package grading
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,44 @@ func TestScoreAndHintsRoundTrip(t *testing.T) {
 	hints, err := LoadHints(dir)
 	if err != nil || len(hints) != 2 || hints[1].Text != "b" {
 		t.Fatalf("LoadHints = %+v, %v", hints, err)
+	}
+}
+
+// An interviewer logs hints beside themselves and pulls the rest of the
+// evidence from the session host, so the ledger has to be loadable by name
+// and mergeable with whatever the host recorded.
+func TestLoadHintsFromFileOrDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := AppendHint(dir, Hint{Minute: 12, Text: "asked about the lag graph"}); err != nil {
+		t.Fatal(err)
+	}
+	byDir, err := LoadHintsFrom(dir)
+	if err != nil || len(byDir) != 1 {
+		t.Fatalf("LoadHintsFrom(dir) = %+v, %v", byDir, err)
+	}
+	byFile, err := LoadHintsFrom(filepath.Join(dir, HintsFile))
+	if err != nil || len(byFile) != 1 || byFile[0].Text != byDir[0].Text {
+		t.Fatalf("LoadHintsFrom(file) = %+v, %v", byFile, err)
+	}
+	if missing, err := LoadHintsFrom(filepath.Join(t.TempDir(), HintsFile)); err != nil || missing != nil {
+		t.Fatalf("LoadHintsFrom(missing) = %+v, %v", missing, err)
+	}
+}
+
+func TestMergeHints(t *testing.T) {
+	host := []Hint{{Minute: 20, Text: "host"}, {Minute: 4, Text: "shared"}}
+	laptop := []Hint{{Minute: 4, Text: "shared"}, {Minute: 9, Text: "laptop"}}
+	got := MergeHints(host, laptop)
+	if len(got) != 3 {
+		t.Fatalf("MergeHints = %+v, want 3 hints", got)
+	}
+	for i, want := range []string{"shared", "laptop", "host"} {
+		if got[i].Text != want {
+			t.Errorf("hint %d = %q, want %q (order: %+v)", i, got[i].Text, want, got)
+		}
+	}
+	// Merging one ledger with itself must not double it.
+	if same := MergeHints(laptop, laptop); len(same) != 2 {
+		t.Errorf("MergeHints(x, x) = %+v, want 2 hints", same)
 	}
 }

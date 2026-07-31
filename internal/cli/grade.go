@@ -70,6 +70,8 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 	workdir := fs.String("workdir", "", "session state directory")
 	outPath := fs.String("o", "", "write the sheet to a file instead of stdout")
 	rubricPath := fs.String("rubric", "", "override the built-in rubric")
+	hintsPath := fs.String("hints", "",
+		"a second hints ledger to merge in, as a directory or a file (see grade hint --workdir)")
 	var sets repeatedFlag
 	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
@@ -77,7 +79,8 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews grade sheet <problem-id> --seed <id> [-o file] [--rubric file]")
+		fmt.Fprintln(stderr,
+			"usage: interviews grade sheet <problem-id> --seed <id> [-o file] [--rubric file] [--hints dir]")
 		return 2
 	}
 
@@ -100,6 +103,16 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews grade sheet: %v\n", err)
 		return 1
+	}
+	if *hintsPath != "" {
+		// Hints are logged wherever the interviewer is sitting, which for a
+		// remote session is not where the evidence comes from.
+		logged, err := grading.LoadHintsFrom(*hintsPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "interviews grade sheet: %v\n", err)
+			return 1
+		}
+		hints = grading.MergeHints(hints, logged)
 	}
 
 	data := grading.SheetData{

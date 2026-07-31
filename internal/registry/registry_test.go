@@ -39,6 +39,30 @@ func problemFiles(fsys fstest.MapFS, dir, id, typ, extra string) {
 	fsys[dir+"/problem.yaml"] = &fstest.MapFile{Data: []byte(manifest(id, typ, extra))}
 	fsys[dir+"/candidate/brief.md"] = &fstest.MapFile{Data: []byte("brief")}
 	fsys[dir+"/interviewer/notes.md"] = &fstest.MapFile{Data: []byte("key")}
+	if typ == "sysdesign" {
+		fsys[dir+"/candidate/brief.md"] = &fstest.MapFile{Data: []byte("See candidate/constraints.md")}
+		fsys[dir+"/candidate/constraints.md"] = &fstest.MapFile{Data: []byte("# Constraints")}
+		fsys[dir+"/interviewer/probes.md"] = &fstest.MapFile{Data: []byte("# Probes")}
+		fsys[dir+"/interviewer/reference.md"] = &fstest.MapFile{Data: []byte("# Reference")}
+		fsys[dir+"/review.yaml"] = &fstest.MapFile{Data: []byte(`tensions:
+  - id: only-tension
+    summary: S
+    hides_in: H
+    good_move: G
+curveballs:
+  - id: first-ball
+    prompt: P
+    probes: R
+    good_move: G
+    red_flag: F
+  - id: second-ball
+    prompt: P
+    probes: R
+    good_move: G
+    red_flag: F
+`)}
+		return
+	}
 	if typ != "debugging" {
 		return
 	}

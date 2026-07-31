@@ -1,0 +1,16 @@
+tensions:
+  - id: fanout-versus-budget
+    summary: The latency target and the cost cap cannot both hold at this fanout.
+    hides_in: The cost cap sits under a heading about scale, not cost.
+    good_move: Names the conflict and picks a side with an argument.
+curveballs:
+  - id: writes-ten-x
+    prompt: Write volume is now ten times higher, starting next quarter.
+    probes: Whether the design has a seam for write amplification.
+    good_move: Points at the seam and names what it costs.
+    red_flag: Adds a cache and declares victory.
+  - id: budget-halved
+    prompt: The infrastructure budget is halved, effective now.
+    probes: Whether they know which part of their design is expensive.
+    good_move: Cuts scope, not correctness.
+    red_flag: Cuts the verification work.

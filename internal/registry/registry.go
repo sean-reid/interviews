@@ -12,6 +12,7 @@ import (
 
 	"github.com/sean-reid/interviews/internal/content"
 	"github.com/sean-reid/interviews/internal/debug"
+	"github.com/sean-reid/interviews/internal/sysdesign"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 	"github.com/sean-reid/interviews/internal/variant"
 )
@@ -106,9 +107,15 @@ func (r *Registry) loadType(fsys fs.FS, t taxonomy.Type) error {
 				r.findings = append(r.findings, Finding{Dir: dir,
 					Issue: content.Issue{Path: ti.Path, Msg: ti.Msg}})
 			}
-			if t == taxonomy.Debugging {
+			switch t {
+			case taxonomy.Debugging:
 				_, scenarioIssues := debug.LoadScenario(problem)
 				for _, i := range scenarioIssues {
+					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
+				}
+			case taxonomy.SysDesign:
+				_, reviewIssues := sysdesign.Load(problem)
+				for _, i := range reviewIssues {
 					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
 				}
 			}

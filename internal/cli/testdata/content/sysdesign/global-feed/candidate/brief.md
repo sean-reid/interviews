@@ -1,4 +1,5 @@
 # Brief
 
-Design the feed. The constraint sheet contradicts itself in at least one
-place; part of the exercise is finding that and deciding what to do.
+Design the feed. Read candidate/constraints.md first: it carries the numbers
+and the deliverable spec. The constraint sheet contradicts itself in at least
+one place; part of the exercise is finding that and deciding what to do.

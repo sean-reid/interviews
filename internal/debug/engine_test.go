@@ -321,3 +321,20 @@ func TestEnvNameStableAndBounded(t *testing.T) {
 		t.Error("different seeds share an env name")
 	}
 }
+
+func TestRenderBuiltins(t *testing.T) {
+	e, _ := testEngine(t, func(m fstest.MapFS) {
+		m["env/manifests/dir.yaml"] = &fstest.MapFile{Data: []byte("dir: {{._dir}}\nwork: {{._workdir}}")}
+	}, map[string]string{"fault_pack": "pack-a"})
+	if err := e.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := os.ReadFile(filepath.Join(e.Workdir, "rendered/env/manifests/dir.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "dir: /problems/pipeline-meltdown\nwork: " + e.Workdir
+	if string(rendered) != want {
+		t.Errorf("rendered = %q, want %q", rendered, want)
+	}
+}

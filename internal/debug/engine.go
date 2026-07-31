@@ -124,6 +124,25 @@ func (e *Engine) script(ctx context.Context, path string, extra map[string]strin
 	return e.Runner.Script(ctx, filepath.Join(e.Dir, path), e.Dir, e.scriptEnv(extra))
 }
 
+// renderVariant is the variant plus engine builtins. Rendered env files can
+// reference {{._dir}} (the problem directory on disk, for absolute build
+// contexts in compose files) and {{._workdir}}. Builtins are engine-side
+// only: candidate-visible text never renders with them, and the template
+// lint rejects them there.
+func (e *Engine) renderVariant() *variant.Resolved {
+	params := make(map[string]any, len(e.Variant.Params)+2)
+	for k, v := range e.Variant.Params {
+		params[k] = v
+	}
+	params["_dir"] = e.Dir
+	params["_workdir"] = e.Workdir
+	return &variant.Resolved{
+		Problem:     e.Variant.Problem,
+		InterviewID: e.Variant.InterviewID,
+		Params:      params,
+	}
+}
+
 // render writes every file under src (in the problem FS) to the workdir,
 // substituting the resolved variant. Returns the rendered directory.
 func (e *Engine) render(src string) (string, error) {
@@ -140,7 +159,7 @@ func (e *Engine) render(src string) (string, error) {
 		if err != nil {
 			return err
 		}
-		rendered, err := variant.Render(string(raw), e.Variant)
+		rendered, err := variant.Render(string(raw), e.renderVariant())
 		if err != nil {
 			return fmt.Errorf("%s: %w", p, err)
 		}
@@ -163,7 +182,7 @@ func (e *Engine) render(src string) (string, error) {
 // renderString substitutes the variant into one spec string (namespace,
 // project names).
 func (e *Engine) renderString(s string) (string, error) {
-	return variant.Render(s, e.Variant)
+	return variant.Render(s, e.renderVariant())
 }
 
 func (e *Engine) logf(format string, args ...any) {

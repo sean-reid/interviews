@@ -1,0 +1,16 @@
+schema: 1
+id: slow-aligner
+type: takehome
+title: Slow aligner
+summary: A correct but slow reference implementation with no natural finish line.
+disciplines: [comp-bio, systems]
+levels: [senior, staff, principal]
+class: optimization-ladder
+time:
+  soft_budget_hours: 6
+params:
+  dataset:
+    type: choice
+    of: [small, medium, large]
+visibility:
+  candidate: [candidate/**]

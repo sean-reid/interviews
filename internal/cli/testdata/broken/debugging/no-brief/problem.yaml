@@ -1,0 +1,12 @@
+schema: 1
+id: no-brief
+type: debugging
+title: Missing its brief
+summary: Used by tests to prove validate reports a missing candidate brief.
+disciplines: [infra]
+levels: [entry]
+flavor: compose-linux
+time:
+  session_minutes: 45
+visibility:
+  candidate: [candidate/**]

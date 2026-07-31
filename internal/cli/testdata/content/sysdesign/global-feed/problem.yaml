@@ -1,0 +1,11 @@
+schema: 1
+id: global-feed
+type: sysdesign
+title: Global feed
+summary: Design a feed under constraints that contradict each other.
+disciplines: [systems, data-eng]
+levels: [senior, staff]
+time:
+  soft_budget_hours: 4
+visibility:
+  candidate: [candidate/**]

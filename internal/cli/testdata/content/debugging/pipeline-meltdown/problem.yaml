@@ -1,0 +1,23 @@
+schema: 1
+id: pipeline-meltdown
+type: debugging
+title: Pipeline meltdown
+summary: A multi-tier pipeline is down in several layered ways.
+disciplines: [systems, infra]
+levels: [mid, senior]
+flavor: kubernetes
+time:
+  session_minutes: 60
+params:
+  fault_pack:
+    type: choice
+    of: [pack-a, pack-b]
+  scale:
+    type: int
+    min: 3
+    max: 9
+  team_name:
+    type: string
+    default: umbrella
+visibility:
+  candidate: [candidate/**]

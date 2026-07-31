@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/sean-reid/interviews/internal/content"
@@ -181,25 +182,35 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 	fs, contentRoot := newFlagSet("prove", stderr)
 	packFlag := fs.String("pack", "", "prove only this fault pack")
 	keep := fs.Bool("keep", false, "leave the environment up after proving")
+	var sets repeatedFlag
+	fs.Var(&sets, "set", "pin a parameter for the proven variant (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews prove <problem-id> [--pack name] [--keep]")
+		fmt.Fprintln(stderr, "usage: interviews prove <problem-id> [--pack name] [--set k=v] [--keep]")
 		return 2
 	}
 	problemID := pos[0]
+	for _, s := range sets {
+		if strings.HasPrefix(s, debug.PackParam+"=") {
+			fmt.Fprintf(stderr, "interviews prove: pick the pack with --pack, not --set %s\n", debug.PackParam)
+			return 2
+		}
+	}
 
 	// Prove pins the pack by override, with a deterministic per-pack seed,
-	// so CI covers every pack regardless of what real interviews draw.
+	// so CI covers every pack regardless of what real interviews draw. --set
+	// pins the rest, for proving that a fault's scripts hold for a variant
+	// other than the one those seeds happen to draw.
 	packs, code := provePacks(*contentRoot, problemID, *packFlag, stderr)
 	if code != 0 {
 		return code
 	}
 	for _, pack := range packs {
 		e, err := engineFor(*contentRoot, problemID, "prove-"+pack, "",
-			[]string{debug.PackParam + "=" + pack}, stdout, stderr)
+			append([]string{debug.PackParam + "=" + pack}, sets...), stdout, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "interviews prove: %v\n", err)
 			return 1

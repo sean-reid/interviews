@@ -53,4 +53,15 @@ func TestProveArgErrors(t *testing.T) {
 		!strings.Contains(stderr, "no debugging problem") {
 		t.Errorf("prove on a takehome: exit %d, stderr %q", code, stderr)
 	}
+	if code, _, stderr := run(t, "prove", "pipeline-meltdown", "--content", goodRoot,
+		"--set", "fault_pack=pack-b"); code != 2 || !strings.Contains(stderr, "--pack") {
+		t.Errorf("prove --set fault_pack: exit %d, stderr %q", code, stderr)
+	}
+	// A pinned value has to reach variant resolution, not merely parse: an
+	// out-of-range one is rejected there and nowhere else.
+	if code, _, stderr := run(t, "prove", "pipeline-meltdown", "--content", goodRoot,
+		"--pack", "pack-a", "--set", "scale=99"); code != 1 ||
+		!strings.Contains(stderr, "outside") {
+		t.Errorf("prove --set out of range: exit %d, stderr %q", code, stderr)
+	}
 }

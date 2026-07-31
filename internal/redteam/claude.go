@@ -57,6 +57,7 @@ func (d *claudeDriver) Run(ctx context.Context, t Task) (*Attempt, error) {
 	}
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = t.Dir
+	cmd.Env = t.environ()
 	cmd.Stdout = f
 	cmd.Stderr = f
 

@@ -51,6 +51,10 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 	baseURL := fs.String("base-url", "", "public base URL fronting the ttyd ports")
 	candTok := fs.String("candidate-token", "", "candidate URL token (default: random)")
 	obsTok := fs.String("observer-token", "", "observer URL token (default: random)")
+	candUser := fs.String("candidate-user", "",
+		"account owning the tmux server, so the candidate's panes are its shells (default: this account)")
+	socket := fs.String("tmux-socket", "", "tmux server socket path, required with --candidate-user")
+	candKube := fs.String("candidate-kubeconfig", "", "kubeconfig to export in the session environment")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
 		return 2
@@ -64,7 +68,10 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews session start: %v\n", err)
 		return 1
 	}
-	opts := session.StartOptions{BaseURL: *baseURL, CandidateToken: *candTok, ObserverToken: *obsTok}
+	opts := session.StartOptions{
+		BaseURL: *baseURL, CandidateToken: *candTok, ObserverToken: *obsTok,
+		CandidateUser: *candUser, TmuxSocket: *socket, CandidateKubeconfig: *candKube,
+	}
 	if _, err := m.Start(context.Background(), opts); err != nil {
 		fmt.Fprintf(stderr, "interviews session start: %v\n", err)
 		return 1
@@ -157,20 +164,32 @@ func sessionTimeline(args []string, stdout, stderr io.Writer) int {
 }
 
 func sessionKubeconfig(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, workdir, sets, pos, ok := debugFlags("session kubeconfig", args, stderr)
-	if !ok {
+	fs, contentRoot := newFlagSet("session kubeconfig", stderr)
+	seed := fs.String("seed", "", "interview id selecting the variant")
+	workdir := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
+	var sets repeatedFlag
+	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
+	out := fs.String("out", "", "also write the kubeconfig here for the candidate's account to read")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews session kubeconfig <problem-id> --seed <id>")
+		fmt.Fprintln(stderr, "usage: interviews session kubeconfig <problem-id> --seed <id> [--out PATH]")
 		return 2
 	}
-	m, err := managerFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
+	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews session kubeconfig: %v\n", err)
 		return 1
 	}
-	path, err := m.Kubeconfig(context.Background())
+	// A second account reads the copy through the group it shares with this
+	// one, which is the only reason to widen the mode past the owner.
+	opts := session.KubeconfigOptions{Out: *out}
+	if *out != "" {
+		opts.Mode = 0o640
+	}
+	path, err := m.Kubeconfig(context.Background(), opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews session kubeconfig: %v\n", err)
 		return 1

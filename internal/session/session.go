@@ -9,10 +9,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -49,6 +51,8 @@ type Info struct {
 	Problem        string    `json:"problem"`
 	Seed           string    `json:"interview_id"`
 	TmuxSession    string    `json:"tmux_session"`
+	TmuxSocket     string    `json:"tmux_socket,omitempty"`
+	CandidateUser  string    `json:"candidate_user,omitempty"`
 	CandidateToken string    `json:"candidate_token"`
 	ObserverToken  string    `json:"observer_token"`
 	CandidatePort  int       `json:"candidate_port"`
@@ -100,10 +104,49 @@ func NewToken() (string, error) {
 // StartOptions tune session start. Empty tokens are generated; hosts
 // provisioned by terraform pass theirs in so the fronting Caddyfile and
 // the terraform outputs agree with the running session.
+//
+// The last three are the two-account host setup and are empty locally,
+// where the interviewer is the only account on the machine.
 type StartOptions struct {
 	BaseURL        string
 	CandidateToken string
 	ObserverToken  string
+	// CandidateUser owns the tmux server, which is what makes every pane
+	// that account's shell: a tmux server runs commands as its owner, so
+	// nothing the candidate types in the browser can run as the observer.
+	CandidateUser string
+	// TmuxSocket is an explicit server socket. Required with CandidateUser,
+	// whose default per-account socket directory the observer cannot reach.
+	TmuxSocket string
+	// CandidateKubeconfig is exported into the session environment when the
+	// file is there, which is how the candidate's shell gets kubectl.
+	CandidateKubeconfig string
+}
+
+// tmuxCtl builds one tmux invocation. user runs it as another account,
+// for the single case where ownership matters: creating the server.
+type tmuxCtl struct {
+	socket string
+	user   string
+}
+
+func (t tmuxCtl) cmd(args ...string) (string, []string) {
+	full := []string{}
+	if t.socket != "" {
+		full = append(full, "-S", t.socket)
+	}
+	full = append(full, args...)
+	if t.user == "" {
+		return "tmux", full
+	}
+	return "sudo", append([]string{"-n", "-u", t.user, "tmux"}, full...)
+}
+
+// line renders an invocation for the places that take a command as one
+// string: a recorder's --command, a pipe-pane shell command.
+func (t tmuxCtl) line(args ...string) string {
+	bin, full := t.cmd(args...)
+	return bin + " " + strings.Join(full, " ")
 }
 
 // listener is one of the two ttyd endpoints: its pidfile name, the label
@@ -116,10 +159,15 @@ type listener struct {
 }
 
 // Start brings up the live layer over an already broken environment: a
-// detached tmux session with raw pane logging, an asciinema recording of
-// it, and the two ttyd endpoints. It writes session.json and prints the
-// candidate and observer URLs.
+// detached tmux session, an asciinema recording of it, and the two ttyd
+// endpoints. It writes session.json and prints the candidate and observer
+// URLs. With a candidate user the tmux server belongs to that account and
+// the recording replaces the raw pane log; without one, everything runs as
+// the account that invoked it, which is the local case.
 func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
+	if opts.CandidateUser != "" && opts.TmuxSocket == "" {
+		return nil, errors.New("a candidate user needs an explicit tmux socket: the default socket directory is unreachable from another account")
+	}
 	st, err := debug.LoadState(m.Engine.Workdir)
 	if err != nil {
 		return nil, fmt.Errorf("no environment state in %s; run interviews env up and interviews break first: %w", m.Engine.Workdir, err)
@@ -129,9 +177,16 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 	}
 
 	name := m.Engine.EnvName()
+	// The server is the only thing that runs as the candidate. Both ttyd
+	// clients stay with this process's account: a tmux client relays
+	// keystrokes and executes nothing, so who owns it decides nothing.
+	server := tmuxCtl{socket: opts.TmuxSocket, user: opts.CandidateUser}
+	client := tmuxCtl{socket: opts.TmuxSocket}
+	tmuxBin, attach := client.cmd("attach", "-t", name)
+	_, observe := client.cmd("attach", "-r", "-t", name)
 	listeners := []listener{
-		{"ttyd-candidate", "candidate", CandidatePort, []string{"-W", "tmux", "attach", "-t", name}},
-		{"ttyd-observer", "observer", ObserverPort, []string{"tmux", "attach", "-r", "-t", name}},
+		{"ttyd-candidate", "candidate", CandidatePort, append([]string{"-W", tmuxBin}, attach...)},
+		{"ttyd-observer", "observer", ObserverPort, append([]string{tmuxBin}, observe...)},
 	}
 	for _, l := range listeners {
 		if m.dial(l.port) == nil {
@@ -141,7 +196,8 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 
 	info := &Info{
 		Problem: st.Problem, Seed: st.Seed,
-		TmuxSession:   name,
+		TmuxSession: name,
+		TmuxSocket:  opts.TmuxSocket, CandidateUser: opts.CandidateUser,
 		CandidatePort: CandidatePort, ObserverPort: ObserverPort,
 		CandidateToken: opts.CandidateToken, ObserverToken: opts.ObserverToken,
 		StartedAt: m.now(),
@@ -159,7 +215,15 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 	info.CandidateURL, info.ObserverURL = urls(opts.BaseURL, info)
 
 	r := m.Engine.Runner
-	if err := r.Command(ctx, "tmux", "new-session", "-d", "-s", name); err != nil {
+	create := []string{"new-session", "-d", "-s", name}
+	if kc := opts.CandidateKubeconfig; kc != "" {
+		if _, err := os.Stat(kc); err == nil {
+			create = append(create, "-e", "KUBECONFIG="+kc)
+		} else {
+			fmt.Fprintf(m.Out, "warning: no kubeconfig at %s: the session gets no kubectl access\n", kc)
+		}
+	}
+	if err := m.runTmux(ctx, server, create...); err != nil {
 		return nil, err
 	}
 	// Everything past the tmux session gets torn down on failure: a half
@@ -167,21 +231,36 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 	// records the pids that stop would have to kill.
 	var started []proc
 	fail := func(err error) (*Info, error) {
-		m.cleanup(ctx, started)
+		m.cleanup(ctx, started, opts.TmuxSocket)
 		return nil, err
 	}
 
-	rawLog := filepath.Join(m.Engine.Workdir, RawLogFile)
-	if err := r.Command(ctx, "tmux", "pipe-pane", "-o", "-t", name, "cat >> "+rawLog); err != nil {
-		return fail(err)
+	if opts.CandidateUser != "" {
+		if err := m.shareServer(ctx, server, opts.TmuxSocket); err != nil {
+			return fail(err)
+		}
+	} else {
+		// pipe-pane runs server-side, so with a candidate-owned server this
+		// would be the candidate writing their own transcript, and stopping
+		// it is one tmux command. There the cast below is the record.
+		rawLog := filepath.Join(m.Engine.Workdir, RawLogFile)
+		if err := m.runTmux(ctx, client, "pipe-pane", "-o", "-t", name, "cat >> "+rawLog); err != nil {
+			return fail(err)
+		}
 	}
 
-	// The recording is evidence, not the session itself: warn and keep
-	// going when asciinema is not installed (a local dry run).
+	// The recorder attaches as this process's account and writes into a
+	// workdir the candidate cannot reach, so with a candidate-owned server
+	// it is the one piece of evidence they can neither edit nor signal.
+	// That makes it mandatory there, and evidence rather than the session
+	// itself locally, where a missing asciinema is just a dry run.
 	cast := filepath.Join(m.Engine.Workdir, CastFile)
 	recorder, recErr := m.startProcess(ctx, "asciinema", "asciinema",
-		"rec", "--overwrite", "--command", "tmux new-session -A -s "+name, cast)
+		"rec", "--overwrite", "--command", client.line("new-session", "-A", "-s", name), cast)
 	if recorder.pid == 0 {
+		if opts.CandidateUser != "" {
+			return fail(fmt.Errorf("recording is the only evidence a candidate account cannot touch: %w", recErr))
+		}
 		fmt.Fprintf(m.Out, "warning: recording unavailable: %v\n", recErr)
 	} else {
 		started = append(started, recorder)
@@ -211,6 +290,9 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 		}
 	}
 	if recorder.pid != 0 && !r.Alive(recorder.pid) {
+		if opts.CandidateUser != "" {
+			return fail(errors.New("recording is the only evidence a candidate account cannot touch: asciinema exited immediately"))
+		}
 		fmt.Fprintln(m.Out, "warning: recording unavailable: asciinema exited immediately")
 		started = slices.DeleteFunc(started, func(p proc) bool { return p.name == recorder.name })
 		if err := m.removePid(recorder); err != nil {
@@ -323,10 +405,32 @@ func LoadInfo(workdir string) (*Info, error) {
 	return &info, nil
 }
 
+// runTmux executes one tmux invocation through the engine's runner.
+func (m *Manager) runTmux(ctx context.Context, t tmuxCtl, args ...string) error {
+	bin, full := t.cmd(args...)
+	return m.Engine.Runner.Command(ctx, bin, full...)
+}
+
+// shareServer opens a candidate-owned tmux server to this account, which
+// the recorder and the observer endpoint both attach to. tmux creates its
+// socket private and refuses clients from other accounts, and only the
+// server's owner can relax either, so both steps run as that owner. The
+// socket's group comes from its setgid directory.
+func (m *Manager) shareServer(ctx context.Context, server tmuxCtl, socket string) error {
+	if err := m.runTmux(ctx, server, "run-shell", "chmod 0660 "+socket); err != nil {
+		return err
+	}
+	me, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("resolving this account: %w", err)
+	}
+	return m.runTmux(ctx, server, "server-access", "-a", "-w", me.Username)
+}
+
 // cleanup stops what a failed Start already started. The process that
 // caused the failure is usually the one that already exited, so signalling
 // only what is still alive keeps the real error at the end of the output.
-func (m *Manager) cleanup(ctx context.Context, started []proc) {
+func (m *Manager) cleanup(ctx context.Context, started []proc, socket string) {
 	for _, p := range started {
 		if !m.Engine.Runner.Alive(p.pid) {
 			if err := m.removePid(p); err != nil {
@@ -341,7 +445,14 @@ func (m *Manager) cleanup(ctx context.Context, started []proc) {
 			fmt.Fprintf(m.Out, "%v\n", err)
 		}
 	}
-	if err := m.Engine.Runner.Command(ctx, "tmux", "kill-session", "-t", m.Engine.EnvName()); err != nil {
+	m.killSession(ctx, socket)
+}
+
+// killSession ends the tmux session on a socket. A shared server accepts
+// this from the observer's account: the access list that let it attach also
+// lets it shut the server down.
+func (m *Manager) killSession(ctx context.Context, socket string) {
+	if err := m.runTmux(ctx, tmuxCtl{socket: socket}, "kill-session", "-t", m.Engine.EnvName()); err != nil {
 		fmt.Fprintf(m.Out, "tmux kill-session: %v\n", err)
 	}
 }
@@ -392,6 +503,11 @@ func (m *Manager) removePid(p proc) error {
 // then takes a final evidence bundle. Kill failures are reported, not
 // fatal: the processes may already be gone.
 func (m *Manager) Stop(ctx context.Context) error {
+	// A shared server lives on its own socket, recorded at start.
+	socket := ""
+	if info, err := LoadInfo(m.Engine.Workdir); err == nil {
+		socket = info.TmuxSocket
+	}
 	dir := filepath.Join(m.Engine.Workdir, pidsDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil && !os.IsNotExist(err) {
@@ -415,8 +531,6 @@ func (m *Manager) Stop(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := m.Engine.Runner.Command(ctx, "tmux", "kill-session", "-t", m.Engine.EnvName()); err != nil {
-		fmt.Fprintf(m.Out, "tmux kill-session: %v\n", err)
-	}
+	m.killSession(ctx, socket)
 	return m.Evidence(ctx, EvidenceOptions{Final: true})
 }

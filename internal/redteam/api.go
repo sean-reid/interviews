@@ -98,7 +98,7 @@ func (d *apiDriver) Run(ctx context.Context, t Task) (*Attempt, error) {
 			if !ok {
 				continue
 			}
-			out, isErr := runBash(ctx, use, t.Dir)
+			out, isErr := runBash(ctx, use, t)
 			logEvent(transcript, "bash", map[string]any{"input": use.Input, "output": out, "error": isErr})
 			results = append(results, anthropic.NewToolResultBlock(use.ID, out, isErr))
 		}
@@ -113,7 +113,7 @@ func (d *apiDriver) Run(ctx context.Context, t Task) (*Attempt, error) {
 // runBash executes one bash tool call inside the scratch directory. The
 // environment is disposable, which is the whole point: an unassisted agent
 // gets the same shell a candidate would.
-func runBash(ctx context.Context, use anthropic.ToolUseBlock, dir string) (string, bool) {
+func runBash(ctx context.Context, use anthropic.ToolUseBlock, t Task) (string, bool) {
 	var in struct {
 		Command string `json:"command"`
 		Restart bool   `json:"restart"`
@@ -125,7 +125,8 @@ func runBash(ctx context.Context, use anthropic.ToolUseBlock, dir string) (strin
 		return "shell restarted", false
 	}
 	cmd := exec.CommandContext(ctx, "bash", "-c", in.Command)
-	cmd.Dir = dir
+	cmd.Dir = t.Dir
+	cmd.Env = t.environ()
 	out, err := cmd.CombinedOutput()
 	text := string(out)
 	if text == "" {

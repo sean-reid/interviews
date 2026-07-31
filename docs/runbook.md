@@ -55,11 +55,25 @@ interviews grade hint relay "asked what the health endpoint returns" \
   --seed calm-bison-0731 --minute 9 --workdir ~/interviews/calm-bison-0731
 ```
 
+## The two accounts
+
+The candidate URL is a shell on the `candidate` account, which owns the tmux
+server the browser attaches to. It cannot read `/opt/interviews`, so the
+answer keys are out of reach, and on kubernetes problems its kubectl is a
+service account scoped to the scenario namespace. Provisioning fails rather
+than continuing if the candidate can reach the content tree.
+
+The `interviewer` account runs the platform, the recorder, and both ttyd
+processes. The recording therefore belongs to an account the candidate
+cannot write to or signal, which is what makes it evidence.
+
 ## After
 
 Evidence syncs to `s3://<bucket>/<seed>/evidence.tar.gz` every two minutes:
-the recording, raw terminal log, fault timeline, and score. Pull it and
-grade, pointing `--hints` at the ledger you kept during the session:
+the recording, the fault timeline, and the score. On a host the candidate
+owns the terminal, so there is no separate raw log and the recording is the
+transcript. Pull the bundle and grade, pointing `--hints` at the ledger you
+kept during the session:
 
 ```sh
 aws s3 cp "$(terraform output -raw evidence_path)evidence.tar.gz" .

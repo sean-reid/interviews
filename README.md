@@ -71,6 +71,10 @@ fronting proxy routes by number, so one host runs one live session at a time.
 `session start` refuses a second one and waits for both endpoints to answer
 before printing any URL, rather than handing you a link nothing serves.
 
+Locally that is one account, your own. On a provisioned host `--candidate-user` puts
+the tmux server on a second account that cannot read the content tree, so the
+candidate's terminal has no route to the answer keys.
+
 See [the runbook](docs/runbook.md) for provisioning a disposable host on any AWS
 account, and for the flow around a live session.
 

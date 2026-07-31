@@ -1,0 +1,6 @@
+# Installed to /etc/sudoers.d/iv-session by provision.sh. The session
+# service runs as interviewer and has to create the candidate's tmux
+# server as the candidate, because a tmux server runs every command as
+# its owner. This is the only account switch on the host, and it goes
+# down in privilege, never up: the candidate gets no sudo at all.
+interviewer ALL=(candidate) NOPASSWD: /usr/bin/tmux

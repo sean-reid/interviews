@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -299,6 +300,132 @@ func TestStartSpawnsSessionProcesses(t *testing.T) {
 	if !strings.Contains(out.String(), info.CandidateURL) || !strings.Contains(out.String(), info.ObserverURL) {
 		t.Errorf("urls not printed: %q", out.String())
 	}
+
+	// The local path is one account: nothing switches user and no explicit
+	// socket appears, so an interviewer's own machine behaves as before.
+	for _, c := range r.calls {
+		if strings.Contains(c, "sudo") || strings.Contains(c, " -S ") {
+			t.Errorf("local start used the multi-account path: %q", c)
+		}
+	}
+	if onDisk.TmuxSocket != "" || onDisk.CandidateUser != "" {
+		t.Errorf("local session.json records a candidate account: %+v", onDisk)
+	}
+}
+
+func TestStartAsCandidateUser(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	socket := filepath.Join(t.TempDir(), "candidate.sock")
+	kube := filepath.Join(t.TempDir(), "candidate.kubeconfig")
+	if err := os.WriteFile(kube, []byte("apiVersion: v1\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := m.Start(context.Background(), StartOptions{
+		CandidateUser: "candidate", TmuxSocket: socket, CandidateKubeconfig: kube,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := m.Engine.EnvName()
+	for _, want := range []string{
+		// The server, and only the server, runs as the candidate.
+		"sudo -n -u candidate tmux -S " + socket + " new-session -d -s " + name + " -e KUBECONFIG=" + kube,
+		"sudo -n -u candidate tmux -S " + socket + " run-shell chmod 0660 " + socket,
+		"sudo -n -u candidate tmux -S " + socket + " server-access -a -w " + me.Username,
+		"start asciinema rec --overwrite --command tmux -S " + socket +
+			" new-session -A -s " + name + " " + filepath.Join(wd, CastFile),
+		"start ttyd -i 127.0.0.1 -p 8001 -W tmux -S " + socket + " attach -t " + name,
+		"start ttyd -i 127.0.0.1 -p 8002 tmux -S " + socket + " attach -r -t " + name,
+	} {
+		if len(r.callsMatching(want)) != 1 {
+			t.Errorf("no call %q in %v", want, r.calls)
+		}
+	}
+
+	// Everything that produces evidence or serves a terminal stays with the
+	// account that started the session; only the tmux server changes hands.
+	for _, c := range r.callsMatching("sudo") {
+		if !strings.Contains(c, "tmux -S "+socket) {
+			t.Errorf("call runs as another account for no reason: %q", c)
+		}
+	}
+	for _, c := range append(r.callsMatching("ttyd"), r.callsMatching("asciinema")...) {
+		if strings.Contains(c, "sudo") {
+			t.Errorf("%q must run as the observer account", c)
+		}
+	}
+	// pipe-pane runs inside the candidate's server, so it cannot be trusted
+	// with the transcript and is not used here.
+	if got := r.callsMatching("pipe-pane"); len(got) != 0 {
+		t.Errorf("pipe-pane used with a candidate-owned server: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(wd, RawLogFile)); !os.IsNotExist(err) {
+		t.Errorf("raw log present: %v", err)
+	}
+
+	if info.TmuxSocket != socket || info.CandidateUser != "candidate" {
+		t.Errorf("session.json = %+v", info)
+	}
+	onDisk, err := LoadInfo(wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.TmuxSocket != socket || onDisk.CandidateUser != "candidate" {
+		t.Errorf("loaded session.json = %+v", onDisk)
+	}
+}
+
+func TestStartRejectsCandidateUserWithoutSocket(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	_, err := m.Start(context.Background(), StartOptions{CandidateUser: "candidate"})
+	if err == nil || !strings.Contains(err.Error(), "tmux socket") {
+		t.Errorf("start without a socket = %v", err)
+	}
+	if len(r.calls) != 0 {
+		t.Errorf("processes spawned: %v", r.calls)
+	}
+}
+
+// Locally a missing recorder is a warning; with a candidate-owned server
+// the cast is the only evidence they cannot rewrite, so it is fatal.
+func TestStartRequiresRecorderForCandidateUser(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	r.failStart["asciinema"] = errors.New("asciinema: executable file not found")
+
+	_, err := m.Start(context.Background(), StartOptions{
+		CandidateUser: "candidate", TmuxSocket: filepath.Join(t.TempDir(), "s"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "recording") {
+		t.Errorf("start with no recorder = %v", err)
+	}
+	if got := r.callsMatching("ttyd"); len(got) != 0 {
+		t.Errorf("terminals served without a recording: %v", got)
+	}
+}
+
+func TestStartWarnsOnMissingKubeconfig(t *testing.T) {
+	m, r, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	missing := filepath.Join(t.TempDir(), "candidate.kubeconfig")
+
+	if _, err := m.Start(context.Background(), StartOptions{CandidateKubeconfig: missing}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "no kubeconfig at "+missing) {
+		t.Errorf("no warning printed: %q", out.String())
+	}
+	if got := r.callsMatching("KUBECONFIG"); len(got) != 0 {
+		t.Errorf("exported a kubeconfig that is not there: %v", got)
+	}
 }
 
 func TestStartWithBaseURLAndTokens(t *testing.T) {
@@ -552,6 +679,27 @@ func TestStopKillsProcessesAndBundles(t *testing.T) {
 	}
 }
 
+// Stop is its own process invocation, so it recovers the shared socket from
+// session.json rather than needing the flags start was given.
+func TestStopFindsTheSharedSocket(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	socket := filepath.Join(t.TempDir(), "candidate.sock")
+	if _, err := m.Start(context.Background(), StartOptions{
+		CandidateUser: "candidate", TmuxSocket: socket,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := "tmux -S " + socket + " kill-session -t " + m.Engine.EnvName()
+	if len(r.callsMatching(want)) != 1 {
+		t.Errorf("no call %q in %v", want, r.calls)
+	}
+}
+
 // tarNames lists the member names of a tar.gz.
 func tarNames(t *testing.T, path string) []string {
 	t.Helper()
@@ -738,12 +886,15 @@ func TestKubeconfigAppliesRBACAndWritesConfig(t *testing.T) {
 	}
 	r.outputs["create token candidate"] = "sa-token-123\n"
 
-	path, err := m.Kubeconfig(context.Background())
+	path, err := m.Kubeconfig(context.Background(), KubeconfigOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if path != filepath.Join(wd, KubeconfigFile) {
 		t.Errorf("path = %q", path)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("workdir kubeconfig mode = %v, %v", info.Mode().Perm(), err)
 	}
 
 	kc := m.Engine.KubeconfigPath()
@@ -789,6 +940,44 @@ func TestKubeconfigAppliesRBACAndWritesConfig(t *testing.T) {
 	}
 }
 
+// The host hands the candidate's account a copy outside the workdir, which
+// stays unreadable to it, and the copy must not be writable there either.
+func TestKubeconfigWritesASecondCopy(t *testing.T) {
+	m, _, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	if err := os.WriteFile(m.Engine.KubeconfigPath(), []byte(kubeconfigFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "candidate.kubeconfig")
+
+	path, err := m.Kubeconfig(context.Background(), KubeconfigOptions{Out: out, Mode: 0o640})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != out {
+		t.Errorf("path = %q, want the handed-out copy %q", path, out)
+	}
+	info, err := os.Stat(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Errorf("copy mode = %v, want 0640: group read, nobody else, no writers", info.Mode().Perm())
+	}
+	copied, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inWorkdir, err := os.ReadFile(filepath.Join(wd, KubeconfigFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(copied) != string(inWorkdir) {
+		t.Error("the copy and the bundled kubeconfig differ")
+	}
+}
+
 func TestKubeconfigNeedsKind(t *testing.T) {
 	m, _, _ := testManager(t, func(m fstest.MapFS) {
 		m["problem.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(
@@ -798,7 +987,7 @@ func TestKubeconfigNeedsKind(t *testing.T) {
 		delete(m, "env/manifests/00-ns.yaml")
 	})
 	writeState(t, m.Engine.Workdir, "01-image-typo")
-	if _, err := m.Kubeconfig(context.Background()); err == nil ||
+	if _, err := m.Kubeconfig(context.Background(), KubeconfigOptions{}); err == nil ||
 		!strings.Contains(err.Error(), "kind-flavor") {
 		t.Errorf("Kubeconfig on compose = %v", err)
 	}

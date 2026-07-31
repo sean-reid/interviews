@@ -120,6 +120,17 @@ resource "aws_instance" "session" {
   iam_instance_profile                 = aws_iam_instance_profile.session.name
   instance_initiated_shutdown_behavior = "terminate"
 
+  # IMDSv2 only, and a hop limit of 1 so a container cannot reach the
+  # instance role. Without this any local uid can read user-data, which
+  # carries the session tokens, and borrow the role to fetch the content
+  # tarball from S3.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    instance_metadata_tags      = "disabled"
+  }
+
   user_data = join("", [
     templatefile("${path.module}/user-data.sh.tpl", {
       problem             = var.problem

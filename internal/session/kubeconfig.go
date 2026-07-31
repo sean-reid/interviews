@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,11 +105,19 @@ contexts:
 current-context: interview
 `
 
+// KubeconfigOptions tune where the candidate kubeconfig lands. The workdir
+// copy is always written, because evidence bundles it; Out adds a second
+// copy for an account that cannot read the workdir.
+type KubeconfigOptions struct {
+	Out  string
+	Mode fs.FileMode
+}
+
 // Kubeconfig applies the candidate ServiceAccount and its RBAC to the
 // scenario cluster, mints a bounded token, and writes a standalone
 // workdir/candidate.kubeconfig pointing at the cluster. Kind-flavor
-// problems only. Returns the kubeconfig path.
-func (m *Manager) Kubeconfig(ctx context.Context) (string, error) {
+// problems only. Returns the path callers should hand out.
+func (m *Manager) Kubeconfig(ctx context.Context, opts KubeconfigOptions) (string, error) {
 	if m.Engine.ProviderName() != "kind" {
 		return "", fmt.Errorf("candidate kubeconfigs need a kind-flavor problem (provider is %s)", m.Engine.ProviderName())
 	}
@@ -154,7 +163,22 @@ func (m *Manager) Kubeconfig(ctx context.Context) (string, error) {
 	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
 		return "", err
 	}
-	return path, nil
+	if opts.Out == "" {
+		return path, nil
+	}
+	mode := opts.Mode
+	if mode == 0 {
+		mode = 0o600
+	}
+	if err := os.WriteFile(opts.Out, []byte(out), mode); err != nil {
+		return "", err
+	}
+	// The file carries a service account token, and which accounts can read
+	// it is the whole point of this copy, so do not leave it to the umask.
+	if err := os.Chmod(opts.Out, mode); err != nil {
+		return "", err
+	}
+	return opts.Out, nil
 }
 
 // clusterEndpoint pulls the server URL and CA bundle out of the

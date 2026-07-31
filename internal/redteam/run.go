@@ -9,17 +9,20 @@ import (
 	"time"
 
 	"github.com/sean-reid/interviews/internal/debug"
+	"github.com/sean-reid/interviews/internal/session"
 )
 
 // DebugRun calibrates one debugging problem: bring the broken environment up,
 // hand an agent exactly what a candidate gets, then score with the same fault
 // checks that grade a real session.
 //
-// The agent runs in a scratch directory outside the content tree and is told
-// only what a candidate is told. It is not sandboxed: it inherits this
-// process's environment and can read whatever this user can, including the
-// content tree if it goes looking. Treat a calibration verdict as evidence
-// about difficulty, not as proof the agent worked blind.
+// The agent works in a scratch directory outside the content tree, is told
+// only what a candidate is told, and gets the candidate's namespace-scoped
+// kubeconfig rather than the cluster-admin one. Nothing it is handed points
+// into the engine workdir, where the state file names the injected faults.
+// It is still not sandboxed at the filesystem level: it runs as this user
+// and could read the content tree if it went looking, so treat a verdict as
+// evidence about difficulty rather than proof the agent worked blind.
 func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, budget time.Duration) (*Entry, error) {
 	if err := d.Available(ctx); err != nil {
 		return nil, err
@@ -48,9 +51,18 @@ func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, bud
 		return nil, fmt.Errorf("injecting faults: %w", err)
 	}
 
-	kubeconfig := filepath.Join(e.Workdir, "kubeconfig")
-	if _, err := os.Stat(kubeconfig); err != nil {
-		kubeconfig = ""
+	// The agent's cluster access has to be the candidate's, or the verdict
+	// comes from a credential no candidate ever holds. It goes in the
+	// scratch directory: a path into the workdir is a path to state.json.
+	env := map[string]string{}
+	kubeconfig := ""
+	if e.ProviderName() == "kind" {
+		kubeconfig = filepath.Join(scratch, "kubeconfig")
+		if _, err := session.NewManager(e, out).Kubeconfig(ctx,
+			session.KubeconfigOptions{Out: kubeconfig}); err != nil {
+			return nil, fmt.Errorf("scoping the agent's cluster access: %w", err)
+		}
+		env["KUBECONFIG"] = kubeconfig
 	}
 	prompt, err := candidatePrompt(e.Scenario.Problem, e.Variant, debugEnvNotes(kubeconfig, namespaceOf(e)))
 	if err != nil {
@@ -59,15 +71,9 @@ func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, bud
 	if err := os.WriteFile(filepath.Join(scratch, "BRIEF.md"), []byte(prompt), 0o644); err != nil {
 		return nil, err
 	}
-	if kubeconfig != "" {
-		// The agent's shell needs the same access a candidate's would have.
-		if err := os.Setenv("KUBECONFIG", kubeconfig); err != nil {
-			return nil, err
-		}
-	}
 
 	attempt, runErr := d.Run(ctx, Task{
-		Problem: entry.Problem, Prompt: prompt, Dir: scratch, Budget: budget,
+		Problem: entry.Problem, Prompt: prompt, Dir: scratch, Budget: budget, Env: env,
 	})
 	if attempt != nil {
 		entry.Model, entry.Turns = attempt.Model, attempt.Turns

@@ -88,3 +88,42 @@ func TestSessionKubeconfigRequiresState(t *testing.T) {
 		t.Errorf("exit %d, stderr %q", code, stderr)
 	}
 }
+
+// The host unit is the only caller of the two-account flags, so a rename on
+// either side would otherwise only surface on a provisioned box. Every
+// session command the unit runs has to parse here, with the placeholders
+// systemd fills in and the content root pointed at the fixtures.
+func TestHostUnitSessionFlagsParse(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "session", "host", "iv-session.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs := strings.NewReplacer(
+		"${IV_PROBLEM}", "pipeline-meltdown",
+		"${IV_SEED}", "test-seed",
+		"${IV_HOSTNAME}", "1.2.3.4.sslip.io",
+		"${IV_CANDIDATE_TOKEN}", strings.Repeat("a", 32),
+		"${IV_OBSERVER_TOKEN}", strings.Repeat("b", 32),
+		"/opt/interviews/content", goodRoot,
+	)
+	found := 0
+	for _, line := range strings.Split(string(raw), "\n") {
+		cmd, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(subs.Replace(strings.TrimPrefix(cmd, "-")))
+		if len(fields) < 2 || fields[1] != "session" {
+			continue
+		}
+		found++
+		args := append(fields[1:], "--workdir", t.TempDir())
+		code, _, stderr := run(t, args...)
+		if code == 2 || strings.Contains(stderr, "not defined") {
+			t.Errorf("%v: exit %d, stderr %q", args, code, stderr)
+		}
+	}
+	if found != 2 {
+		t.Errorf("session commands in the unit = %d, want 2", found)
+	}
+}

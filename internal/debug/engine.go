@@ -382,8 +382,9 @@ func (e *Engine) saveState(st *State) error {
 	}
 	// Timers read this file every 30 seconds while commands write it, so
 	// swap it into place rather than truncating it in front of a reader.
+	// It names every injected fault, so it stays owner-only.
 	tmp := e.statePath() + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, e.statePath())

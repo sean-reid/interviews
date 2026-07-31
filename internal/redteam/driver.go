@@ -7,6 +7,9 @@ package redteam
 import (
 	"context"
 	"fmt"
+	"maps"
+	"os"
+	"slices"
 	"time"
 )
 
@@ -18,6 +21,22 @@ type Task struct {
 	Prompt  string
 	Dir     string
 	Budget  time.Duration
+	// Env is merged over this process's environment for the agent and its
+	// tools only. Calibration must not mutate the environment it runs in:
+	// the same process goes on to check and fix with its own credentials.
+	Env map[string]string
+}
+
+// environ renders a task's environment for an exec.Cmd.
+func (t Task) environ() []string {
+	if len(t.Env) == 0 {
+		return nil
+	}
+	env := os.Environ()
+	for _, k := range slices.Sorted(maps.Keys(t.Env)) {
+		env = append(env, k+"="+t.Env[k])
+	}
+	return env
 }
 
 // Attempt is one agent run's raw record.

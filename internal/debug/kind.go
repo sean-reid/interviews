@@ -22,7 +22,7 @@ func (p *kindProvider) cluster() string { return envName(p.e.Variant) }
 func (p *kindProvider) kubeconfig() string { return filepath.Join(p.e.Workdir, "kubeconfig") }
 
 func (p *kindProvider) namespace() (string, error) {
-	return p.e.renderString(p.e.Scenario.Env.Kind.Namespace)
+	return p.e.RenderString(p.e.Scenario.Env.Kind.Namespace)
 }
 
 func (p *kindProvider) env(env map[string]string) {

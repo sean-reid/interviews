@@ -188,9 +188,9 @@ func (e *Engine) render(src string) (string, error) {
 	return dst, nil
 }
 
-// renderString substitutes the variant into one spec string (namespace,
+// RenderString substitutes the variant into one spec string (namespace,
 // project names).
-func (e *Engine) renderString(s string) (string, error) {
+func (e *Engine) RenderString(s string) (string, error) {
 	return variant.Render(s, e.renderVariant())
 }
 

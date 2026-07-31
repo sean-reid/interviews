@@ -67,4 +67,18 @@ interviews grade score <problem> --seed <id>    # fill the objective table from 
 interviews grade hint <problem> "text" --seed <id> --minute 17
 ```
 
-More commands (bundle, redteam) land as the platform grows.
+Problems get easier as models improve, so calibration is a command. The
+red-team harness drives a frontier agent at a problem with exactly what a
+candidate gets, scores it with the same fault checks, and records the verdict.
+It drives the local `claude` CLI by default, so no API key is needed:
+
+```sh
+interviews redteam <problem>                  # calibrate every pack
+interviews redteam <problem> --driver api     # via the Messages API instead
+interviews redteam ledger --stale             # problems that no longer discriminate
+```
+
+A problem an unassisted agent mostly solves is flagged for rework. Re-run the
+calibration whenever a stronger model ships.
+
+More commands (bundle) land as the platform grows.

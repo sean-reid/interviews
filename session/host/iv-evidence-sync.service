@@ -1,0 +1,10 @@
+[Unit]
+Description=Interview evidence sync to S3
+After=iv-session.service
+
+[Service]
+Type=oneshot
+User=interviewer
+WorkingDirectory=/opt/interviews
+EnvironmentFile=/etc/interviews/session.env
+ExecStart=/opt/interviews/interviews session evidence ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --s3 ${IV_EVIDENCE_S3}

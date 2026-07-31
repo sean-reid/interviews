@@ -1,0 +1,10 @@
+[Unit]
+Description=Interview fault timeline sample
+After=iv-session.service
+
+[Service]
+Type=oneshot
+User=interviewer
+WorkingDirectory=/opt/interviews
+EnvironmentFile=/etc/interviews/session.env
+ExecStart=/opt/interviews/interviews session timeline ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --once

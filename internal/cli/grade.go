@@ -12,6 +12,7 @@ import (
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/grading"
 	"github.com/sean-reid/interviews/internal/registry"
+	"github.com/sean-reid/interviews/internal/session"
 	"github.com/sean-reid/interviews/internal/variant"
 )
 
@@ -149,31 +150,8 @@ func gradeScore(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews grade score: %v\n", err)
 		return 1
 	}
-	ctx := context.Background()
-	statuses, err := e.Status(ctx)
+	score, err := session.RefreshScore(context.Background(), e)
 	if err != nil {
-		fmt.Fprintf(stderr, "interviews grade score: %v\n", err)
-		return 1
-	}
-	pack, err := e.Pack()
-	if err != nil {
-		fmt.Fprintf(stderr, "interviews grade score: %v\n", err)
-		return 1
-	}
-	score := &grading.Score{
-		Problem: e.Variant.Problem, InterviewID: e.Variant.InterviewID,
-		Pack: pack, Verified: e.Verify(ctx) == nil, At: time.Now(),
-	}
-	for _, s := range statuses {
-		score.Faults = append(score.Faults, grading.FaultResult{
-			ID: s.ID, Title: s.Title, Tier: string(s.Tier), Fixed: s.Fixed,
-		})
-		score.Total++
-		if s.Fixed {
-			score.Fixed++
-		}
-	}
-	if err := grading.WriteScore(e.Workdir, score); err != nil {
 		fmt.Fprintf(stderr, "interviews grade score: %v\n", err)
 		return 1
 	}

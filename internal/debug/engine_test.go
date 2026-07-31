@@ -55,6 +55,13 @@ func (r *fakeRunner) Output(_ context.Context, name string, args ...string) (str
 	return "", nil
 }
 
+func (r *fakeRunner) Start(_ context.Context, name string, args ...string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, "start "+name+" "+strings.Join(args, " "))
+	return 40000 + len(r.calls), nil
+}
+
 func (r *fakeRunner) Script(_ context.Context, path, _ string, env map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -319,6 +326,30 @@ func TestEnvNameStableAndBounded(t *testing.T) {
 	v2 := &variant.Resolved{Problem: v.Problem, InterviewID: "other"}
 	if envName(v2) == a {
 		t.Error("different seeds share an env name")
+	}
+}
+
+func TestSessionSeams(t *testing.T) {
+	e, _ := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	if e.EnvName() != envName(e.Variant) {
+		t.Errorf("EnvName = %q, want %q", e.EnvName(), envName(e.Variant))
+	}
+	if e.ProviderName() != "kind" {
+		t.Errorf("ProviderName = %q", e.ProviderName())
+	}
+	if got, want := e.KubeconfigPath(), filepath.Join(e.Workdir, "kubeconfig"); got != want {
+		t.Errorf("KubeconfigPath = %q, want %q", got, want)
+	}
+	ns, err := e.KindNamespace()
+	if err != nil || ns != "shop" {
+		t.Errorf("KindNamespace = %q, %v", ns, err)
+	}
+	if err := e.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadState(e.Workdir)
+	if err != nil || st.Problem != "pipeline-meltdown" || st.Pack != "pack-a" {
+		t.Errorf("LoadState = %+v, %v", st, err)
 	}
 }
 

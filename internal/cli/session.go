@@ -1,0 +1,180 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/sean-reid/interviews/internal/session"
+)
+
+func cmdSession(args []string, stdout, stderr io.Writer) int {
+	usage := "usage: interviews session start|stop|evidence|timeline|kubeconfig <problem-id> --seed <id> [flags]"
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	switch args[0] {
+	case "start":
+		return sessionStart(args[1:], stdout, stderr)
+	case "stop":
+		return sessionStop(args[1:], stdout, stderr)
+	case "evidence":
+		return sessionEvidence(args[1:], stdout, stderr)
+	case "timeline":
+		return sessionTimeline(args[1:], stdout, stderr)
+	case "kubeconfig":
+		return sessionKubeconfig(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+}
+
+// managerFor builds the session manager the same way every debugging
+// command builds its engine.
+func managerFor(contentRoot, problemID, seed, workdir string, sets []string, stdout, stderr io.Writer) (*session.Manager, error) {
+	e, err := engineFor(contentRoot, problemID, seed, workdir, sets, stdout, stderr)
+	if err != nil {
+		return nil, err
+	}
+	return session.NewManager(e, stdout), nil
+}
+
+func sessionStart(args []string, stdout, stderr io.Writer) int {
+	fs, contentRoot := newFlagSet("session start", stderr)
+	seed := fs.String("seed", "", "interview id selecting the variant")
+	workdir := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
+	var sets repeatedFlag
+	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
+	baseURL := fs.String("base-url", "", "public base URL fronting the ttyd ports")
+	candTok := fs.String("candidate-token", "", "candidate URL token (default: random)")
+	obsTok := fs.String("observer-token", "", "observer URL token (default: random)")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprintln(stderr, "usage: interviews session start <problem-id> --seed <id> [--base-url URL]")
+		return 2
+	}
+	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session start: %v\n", err)
+		return 1
+	}
+	opts := session.StartOptions{BaseURL: *baseURL, CandidateToken: *candTok, ObserverToken: *obsTok}
+	if _, err := m.Start(context.Background(), opts); err != nil {
+		fmt.Fprintf(stderr, "interviews session start: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func sessionStop(args []string, stdout, stderr io.Writer) int {
+	contentRoot, seed, workdir, sets, pos, ok := debugFlags("session stop", args, stderr)
+	if !ok {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprintln(stderr, "usage: interviews session stop <problem-id> --seed <id>")
+		return 2
+	}
+	m, err := managerFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session stop: %v\n", err)
+		return 1
+	}
+	if err := m.Stop(context.Background()); err != nil {
+		fmt.Fprintf(stderr, "interviews session stop: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func sessionEvidence(args []string, stdout, stderr io.Writer) int {
+	fs, contentRoot := newFlagSet("session evidence", stderr)
+	seed := fs.String("seed", "", "interview id selecting the variant")
+	workdir := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
+	var sets repeatedFlag
+	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
+	final := fs.Bool("final", false, "final pass: record check errors instead of failing")
+	s3 := fs.String("s3", "", "upload the bundle under this s3://bucket/prefix")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprintln(stderr, "usage: interviews session evidence <problem-id> --seed <id> [--final] [--s3 s3://bucket/prefix]")
+		return 2
+	}
+	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session evidence: %v\n", err)
+		return 1
+	}
+	if err := m.Evidence(context.Background(), session.EvidenceOptions{Final: *final, S3: *s3}); err != nil {
+		fmt.Fprintf(stderr, "interviews session evidence: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func sessionTimeline(args []string, stdout, stderr io.Writer) int {
+	fs, contentRoot := newFlagSet("session timeline", stderr)
+	seed := fs.String("seed", "", "interview id selecting the variant")
+	workdir := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
+	var sets repeatedFlag
+	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
+	interval := fs.Duration("interval", 30*time.Second, "sampling interval")
+	once := fs.Bool("once", false, "take a single sample and exit")
+	forDur := fs.Duration("for", 0, "keep sampling for this long")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 1 || *once == (*forDur > 0) {
+		fmt.Fprintln(stderr, "usage: interviews session timeline <problem-id> --seed <id> --interval 30s --once|--for 70m")
+		return 2
+	}
+	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session timeline: %v\n", err)
+		return 1
+	}
+	ctx := context.Background()
+	if *once {
+		err = m.TimelineTick(ctx)
+	} else {
+		err = m.TimelineRun(ctx, *interval, *forDur)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session timeline: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func sessionKubeconfig(args []string, stdout, stderr io.Writer) int {
+	contentRoot, seed, workdir, sets, pos, ok := debugFlags("session kubeconfig", args, stderr)
+	if !ok {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprintln(stderr, "usage: interviews session kubeconfig <problem-id> --seed <id>")
+		return 2
+	}
+	m, err := managerFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session kubeconfig: %v\n", err)
+		return 1
+	}
+	path, err := m.Kubeconfig(context.Background())
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews session kubeconfig: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, path)
+	return 0
+}

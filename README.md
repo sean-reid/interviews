@@ -48,6 +48,23 @@ interviews env down <problem> --seed <id>
 interviews prove <problem>                  # CI gate: every fault breaks, every fix works
 ```
 
+A live session layers a shared, recorded terminal over a broken environment:
+a tmux session captured by asciinema, exposed writable to the candidate and
+read-only to the observer through ttyd, behind secret URL tokens:
+
+```sh
+interviews session start <problem> --seed <id> [--base-url URL]
+interviews session timeline <problem> --seed <id> --interval 30s --once|--for 70m
+interviews session evidence <problem> --seed <id> [--final] [--s3 s3://bucket/prefix]
+interviews session kubeconfig <problem> --seed <id>   # kind problems: scoped candidate access
+interviews session stop <problem> --seed <id>
+```
+
+The timeline records when each fault flipped, evidence bundles everything
+grading needs into `evidence.tar.gz`, and `session/host/` plus `infra/aws/`
+turn any AWS account into disposable, self-destructing interview hosts
+(see `docs/runbook.md`).
+
 Take-homes ship as clean candidate bundles: the candidate-visible files
 rendered for the variant, a fresh one-commit git history, and a leak gate
 that fails the whole bundle if anything interviewer-only would leave:

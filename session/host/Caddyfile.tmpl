@@ -1,0 +1,20 @@
+# Rendered to /etc/caddy/Caddyfile by provision.sh. Caddy terminates
+# TLS for the sslip.io hostname; the secret path tokens are the only
+# routes to the two ttyd endpoints.
+${HOSTNAME_FQDN} {
+	handle_path /c/${IV_CANDIDATE_TOKEN}* {
+		reverse_proxy 127.0.0.1:8001
+	}
+
+	handle_path /o/${IV_OBSERVER_TOKEN}* {
+		reverse_proxy 127.0.0.1:8002
+	}
+
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	handle {
+		respond 404
+	}
+}

@@ -91,6 +91,26 @@ func DefaultWorkdir(v *variant.Resolved) (string, error) {
 	return filepath.Join(cache, "interviews", envName(v)), nil
 }
 
+// EnvName is the stable environment name for this engine's variant; the
+// session stack names its tmux session after it.
+func (e *Engine) EnvName() string { return envName(e.Variant) }
+
+// ProviderName reports which provider hosts this scenario.
+func (e *Engine) ProviderName() string { return e.provider.Name() }
+
+// KubeconfigPath is the engine-owned kubeconfig for kind environments,
+// exported per cluster so concurrent environments and the interviewer's
+// own kubectl context never fight over current-context.
+func (e *Engine) KubeconfigPath() string { return filepath.Join(e.Workdir, "kubeconfig") }
+
+// KindNamespace is the rendered scenario namespace on kind problems.
+func (e *Engine) KindNamespace() (string, error) {
+	if e.Scenario.Env.Kind == nil {
+		return "", fmt.Errorf("%s has no kind environment", e.Variant.Problem)
+	}
+	return e.RenderString(e.Scenario.Env.Kind.Namespace)
+}
+
 // envName is the stable per-problem-per-interview environment name, safe
 // for cluster and compose-project identifiers.
 func envName(v *variant.Resolved) string {
@@ -334,7 +354,10 @@ func (e *Engine) sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (e *Engine) statePath() string { return filepath.Join(e.Workdir, "state.json") }
+// StateFile is the environment state's name inside a session workdir.
+const StateFile = "state.json"
+
+func (e *Engine) statePath() string { return filepath.Join(e.Workdir, StateFile) }
 
 func (e *Engine) saveState(st *State) error {
 	raw, err := json.MarshalIndent(st, "", "  ")
@@ -344,8 +367,11 @@ func (e *Engine) saveState(st *State) error {
 	return os.WriteFile(e.statePath(), raw, 0o644)
 }
 
-func (e *Engine) loadState() (*State, error) {
-	raw, err := os.ReadFile(e.statePath())
+func (e *Engine) loadState() (*State, error) { return LoadState(e.Workdir) }
+
+// LoadState reads a workdir's environment state.
+func LoadState(workdir string) (*State, error) {
+	raw, err := os.ReadFile(filepath.Join(workdir, StateFile))
 	if err != nil {
 		return nil, err
 	}

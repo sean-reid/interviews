@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // Runner executes external processes. Providers and fault scripts go
@@ -22,6 +23,10 @@ type Runner interface {
 	// Script runs an executable file from dir with extra environment
 	// merged over the process environment.
 	Script(ctx context.Context, path, dir string, env map[string]string) error
+	// Start launches a long-lived background process (ttyd, a recorder)
+	// and returns its pid. The process must outlive the CLI, so the
+	// context gates startup only; callers stop it by pid.
+	Start(ctx context.Context, name string, args ...string) (int, error)
 }
 
 // ExecRunner is the real Runner.
@@ -48,6 +53,18 @@ func (r *ExecRunner) Output(ctx context.Context, name string, args ...string) (s
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 	return string(out), nil
+}
+
+func (r *ExecRunner) Start(_ context.Context, name string, args ...string) (int, error) {
+	cmd := exec.Command(name, args...)
+	// A new session detaches the process from the CLI's terminal, so it
+	// survives the CLI exiting and the terminal closing.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return 0, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return cmd.Process.Pid, nil
 }
 
 func (r *ExecRunner) Script(ctx context.Context, path, dir string, env map[string]string) error {

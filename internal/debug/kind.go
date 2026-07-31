@@ -17,9 +17,7 @@ func (p *kindProvider) Name() string { return "kind" }
 
 func (p *kindProvider) cluster() string { return envName(p.e.Variant) }
 
-// kubeconfig is exported per cluster so concurrent environments and the
-// interviewer's own kubectl context never fight over current-context.
-func (p *kindProvider) kubeconfig() string { return filepath.Join(p.e.Workdir, "kubeconfig") }
+func (p *kindProvider) kubeconfig() string { return p.e.KubeconfigPath() }
 
 func (p *kindProvider) namespace() (string, error) {
 	return p.e.RenderString(p.e.Scenario.Env.Kind.Namespace)

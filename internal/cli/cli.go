@@ -23,6 +23,7 @@ Commands:
   break      inject the variant's fault pack
   fault      status | fix injected faults (interviewer only)
   prove      re-prove every fault: inject breaks, documented fix works
+  session    start | stop | evidence | timeline | kubeconfig: live session stack
   grade      sheet | score | hint: rubric-first grading artifacts
   bundle     write a take-home candidate bundle (dir or .tar.gz)
   redteam    drive a frontier agent at a problem; ledger records the verdict
@@ -43,6 +44,7 @@ var commands = map[string]command{
 	"break":    cmdBreak,
 	"fault":    cmdFault,
 	"prove":    cmdProve,
+	"session":  cmdSession,
 	"grade":    cmdGrade,
 	"bundle":   cmdBundle,
 	"redteam":  cmdRedteam,

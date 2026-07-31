@@ -1,0 +1,14 @@
+[Unit]
+Description=Interview host TTL self-destruct
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/interviews/session.env
+# systemd-run arms a transient timer; with the instance's shutdown
+# behavior set to terminate, poweroff destroys the host for good.
+ExecStart=/bin/sh -c 'systemd-run --on-active="${IV_TTL_MINUTES:-120}min" systemctl poweroff'
+
+[Install]
+WantedBy=multi-user.target

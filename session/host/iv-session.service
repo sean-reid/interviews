@@ -1,0 +1,19 @@
+[Unit]
+Description=Interview environment and live session
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=30min
+User=interviewer
+WorkingDirectory=/opt/interviews
+EnvironmentFile=/etc/interviews/session.env
+ExecStart=/opt/interviews/interviews env up ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content
+ExecStart=/opt/interviews/interviews break ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content
+ExecStart=/opt/interviews/interviews session start ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --base-url https://${IV_HOSTNAME} --candidate-token ${IV_CANDIDATE_TOKEN} --observer-token ${IV_OBSERVER_TOKEN}
+
+[Install]
+WantedBy=multi-user.target

@@ -133,12 +133,15 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 		fmt.Fprintf(m.Out, "warning: recording unavailable: %v\n", err)
 	}
 
+	// Both listeners bind loopback: Caddy is the only front door, and it is
+	// what enforces the URL tokens. A ttyd on every interface is an
+	// unauthenticated shell for anything that can route to the host.
 	if err := m.startProcess(ctx, "ttyd-candidate", "ttyd",
-		"-p", strconv.Itoa(CandidatePort), "-W", "tmux", "attach", "-t", name); err != nil {
+		"-i", "127.0.0.1", "-p", strconv.Itoa(CandidatePort), "-W", "tmux", "attach", "-t", name); err != nil {
 		return nil, err
 	}
 	if err := m.startProcess(ctx, "ttyd-observer", "ttyd",
-		"-p", strconv.Itoa(ObserverPort), "tmux", "attach", "-r", "-t", name); err != nil {
+		"-i", "127.0.0.1", "-p", strconv.Itoa(ObserverPort), "tmux", "attach", "-r", "-t", name); err != nil {
 		return nil, err
 	}
 

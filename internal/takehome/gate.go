@@ -26,6 +26,18 @@ var forbidden = []string{"interviewer/", "faults/", "{{"}
 // anything that is not candidate-visible, then greps every file outside
 // .git for the forbidden markers. This runs over the output directory, not
 // the inputs, so a bug anywhere upstream still cannot ship a leak.
+// writtenPaths lists every file in the finished bundle.
+func writtenPaths(fsys fs.FS) []string {
+	var out []string
+	_ = fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			out = append(out, p)
+		}
+		return nil
+	})
+	return out
+}
+
 func checkGate(dir string, c *leak.Classifier) error {
 	fsys := os.DirFS(dir)
 	leaks, err := leak.Leaks(fsys, c)
@@ -33,6 +45,14 @@ func checkGate(dir string, c *leak.Classifier) error {
 		return err
 	}
 	var bad []string
+	// A written path that names a protected directory is a leak even if the
+	// classifier were somehow persuaded otherwise, so check the paths too and
+	// not only what the classifier says about them.
+	for _, name := range writtenPaths(fsys) {
+		if leak.Protected(name) && name != AboutName && !strings.HasPrefix(name, ".git/") {
+			bad = append(bad, name)
+		}
+	}
 	for _, name := range leaks {
 		// The bundle adds exactly two things beyond the candidate files:
 		// ABOUT.md and the git repository. Everything else is fatal.

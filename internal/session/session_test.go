@@ -191,8 +191,8 @@ func TestStartSpawnsSessionProcesses(t *testing.T) {
 		"tmux new-session -d -s " + name,
 		"tmux pipe-pane -o -t " + name + " cat >> " + filepath.Join(wd, RawLogFile),
 		"start asciinema rec --overwrite --command tmux new-session -A -s " + name + " " + filepath.Join(wd, CastFile),
-		"start ttyd -p 8001 -W tmux attach -t " + name,
-		"start ttyd -p 8002 tmux attach -r -t " + name,
+		"start ttyd -i 127.0.0.1 -p 8001 -W tmux attach -t " + name,
+		"start ttyd -i 127.0.0.1 -p 8002 tmux attach -r -t " + name,
 	} {
 		if len(r.callsMatching(want)) != 1 {
 			t.Errorf("no call %q in %v", want, r.calls)

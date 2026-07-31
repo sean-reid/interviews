@@ -15,8 +15,11 @@ import (
 // hand an agent exactly what a candidate gets, then score with the same fault
 // checks that grade a real session.
 //
-// The agent works in a scratch directory outside the content tree, so it
-// cannot read fault scripts or interviewer notes even if it goes looking.
+// The agent runs in a scratch directory outside the content tree and is told
+// only what a candidate is told. It is not sandboxed: it inherits this
+// process's environment and can read whatever this user can, including the
+// content tree if it goes looking. Treat a calibration verdict as evidence
+// about difficulty, not as proof the agent worked blind.
 func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, budget time.Duration) (*Entry, error) {
 	if err := d.Available(ctx); err != nil {
 		return nil, err

@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"slices"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Class is the visibility of one file within a problem directory.
@@ -25,10 +25,33 @@ const (
 	CandidateVisible
 )
 
-// ProtectedDirs are the directories whose contents can never be made
+// ProtectedDirs name directories whose contents can never be made
 // candidate-visible, whatever the manifest says: interviewer/ holds rubrics
 // and references, faults/ holds a debugging scenario's answer-key scripts.
+//
+// A directory with one of these names is protected at any depth, not just at
+// the problem root. Nesting one deeper is a plausible way to organise notes,
+// and it must not become a way to publish them.
 var ProtectedDirs = []string{"interviewer", "faults"}
+
+// ProtectedFiles name files at the problem root that describe the exercise
+// itself: the fault and environment specs, and the live-review material for a
+// design problem. None of them is answer-free.
+var ProtectedFiles = []string{"env.yaml", "review.yaml", "problem.yaml"}
+
+// isProtectedName reports whether one path segment names something protected.
+// Comparison folds case because the classifier and the filesystem must agree:
+// on a case-insensitive filesystem, Interviewer/ and interviewer/ are the same
+// directory, and a classifier that only knows the lowercase spelling would
+// call the other one publishable.
+func isProtectedName(seg string, names []string) bool {
+	for _, n := range names {
+		if strings.EqualFold(seg, n) {
+			return true
+		}
+	}
+	return false
+}
 
 // Classifier classifies paths relative to a problem root.
 type Classifier struct {
@@ -45,8 +68,10 @@ func NewClassifier(candidateGlobs []string) (*Classifier, error) {
 		if err != nil {
 			return nil, err
 		}
-		if slices.Contains(ProtectedDirs, g.segs[0]) {
-			return nil, fmt.Errorf("glob %q: %s/ can never be candidate-visible", p, g.segs[0])
+		for _, seg := range g.segs {
+			if isProtectedName(seg, ProtectedDirs) {
+				return nil, fmt.Errorf("glob %q: %s/ can never be candidate-visible", p, seg)
+			}
 		}
 		c.candidate = append(c.candidate, g)
 	}
@@ -56,7 +81,7 @@ func NewClassifier(candidateGlobs []string) (*Classifier, error) {
 // Classify returns the visibility of one slash-separated relative path.
 func (c *Classifier) Classify(name string) Class {
 	name = path.Clean(name)
-	if underProtectedDir(name) {
+	if Protected(name) {
 		return InterviewerOnly
 	}
 	segs := strings.Split(name, "/")
@@ -68,14 +93,21 @@ func (c *Classifier) Classify(name string) Class {
 	return InterviewerOnly
 }
 
-func underProtectedDir(name string) bool {
-	name = path.Clean(name)
-	for _, dir := range ProtectedDirs {
-		if name == dir || strings.HasPrefix(name, dir+"/") {
+// Protected reports whether a path is protected regardless of the manifest:
+// it names, or sits under, a protected directory at any depth, or it is one of
+// the root files that describe the exercise.
+func Protected(name string) bool {
+	segs := strings.Split(path.Clean(name), "/")
+	for _, seg := range segs[:len(segs)-1] {
+		if isProtectedName(seg, ProtectedDirs) {
 			return true
 		}
 	}
-	return false
+	last := segs[len(segs)-1]
+	if isProtectedName(last, ProtectedDirs) {
+		return true
+	}
+	return len(segs) == 1 && isProtectedName(last, ProtectedFiles)
 }
 
 // Globs returns the source form of the compiled candidate globs.
@@ -94,10 +126,11 @@ type Scan struct {
 	// UnmatchedGlobs are candidate globs that matched no file: a sign the
 	// manifest and the tree have drifted apart.
 	UnmatchedGlobs []string
-	// Irregular are entries that are neither directories nor regular files.
-	// A symlink can name a candidate-visible path while pointing at an answer
-	// key, so classification by path alone cannot vouch for them: they are
-	// counted interviewer-only and reported for the caller to reject.
+	// Irregular are entries this package will not vouch for by path alone.
+	// A symlink can sit at a candidate path and point at an answer key, and a
+	// hardlink is a second name for the same bytes with nothing in the path to
+	// show it. Both are counted interviewer-only and reported for the caller
+	// to reject.
 	Irregular []string
 }
 
@@ -112,12 +145,12 @@ func (c *Classifier) Scan(fsys fs.FS) (*Scan, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if !d.Type().IsRegular() {
+		if !d.Type().IsRegular() || multiplyLinked(d) {
 			s.Irregular = append(s.Irregular, p)
 			s.Interviewer = append(s.Interviewer, p)
 			return nil
 		}
-		if underProtectedDir(p) {
+		if Protected(p) {
 			s.Interviewer = append(s.Interviewer, p)
 			return nil
 		}
@@ -161,4 +194,19 @@ func Leaks(fsys fs.FS, c *Classifier) ([]string, error) {
 		return nil, nil
 	}
 	return s.Interviewer, nil
+}
+
+// multiplyLinked reports whether a regular file has more than one name on
+// disk. Path classification describes one name; a second name elsewhere in
+// the tree can reach the same bytes, so a file with extra links is not
+// something this package can vouch for. Filesystems that do not report link
+// counts (an in-memory test FS, for instance) answer false, which leaves
+// path classification as the only claim being made.
+func multiplyLinked(d fs.DirEntry) bool {
+	info, err := d.Info()
+	if err != nil {
+		return true // cannot tell, so do not vouch for it
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	return ok && st.Nlink > 1
 }

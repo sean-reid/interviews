@@ -95,7 +95,9 @@ func RefreshScore(ctx context.Context, e *debug.Engine) (*grading.Score, error) 
 
 // bundle writes the existing evidence files into a tar.gz at dest.
 func bundle(workdir, dest string) (err error) {
-	f, err := os.Create(dest)
+	// The archive carries the session tokens and the candidate service
+	// account token, so it must not be readable beyond its owner.
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

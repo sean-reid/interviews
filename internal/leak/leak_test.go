@@ -205,3 +205,85 @@ func TestLeaks(t *testing.T) {
 		t.Errorf("Leaks on clean tree = %v, want none", got)
 	}
 }
+
+// A protected directory nested below the root is still protected. Organising
+// notes one level down is plausible; publishing them that way is not.
+func TestProtectedDirsAtAnyDepth(t *testing.T) {
+	c := mustClassifier(t, "candidate/**", "**/*.md")
+	for _, p := range []string{
+		"candidate/notes/interviewer/reference.md",
+		"candidate/notes/faults/01-x/inject.sh",
+		"deep/nest/interviewer/probes.md",
+		"candidate/faults/notes.md",
+	} {
+		if got := c.Classify(p); got != InterviewerOnly {
+			t.Errorf("Classify(%q) = %v, want InterviewerOnly", p, got)
+		}
+	}
+}
+
+// The classifier and the filesystem have to agree about identity. On a
+// case-insensitive filesystem Interviewer/ and interviewer/ are one directory.
+func TestProtectedDirsFoldCase(t *testing.T) {
+	c := mustClassifier(t, "**/*.md")
+	for _, p := range []string{
+		"Interviewer/probes.md", "INTERVIEWER/keys.md", "candidate/Faults/x.md",
+	} {
+		if got := c.Classify(p); got != InterviewerOnly {
+			t.Errorf("Classify(%q) = %v, want InterviewerOnly", p, got)
+		}
+	}
+	if _, err := NewClassifier([]string{"Interviewer/**"}); err == nil {
+		t.Error("glob naming Interviewer/ accepted, want error")
+	}
+	if _, err := NewClassifier([]string{"**/interviewer/**"}); err == nil {
+		t.Error("glob naming interviewer/ at depth accepted, want error")
+	}
+}
+
+// The files that describe the exercise are not answer-free.
+func TestRootSpecFilesAreProtected(t *testing.T) {
+	c := mustClassifier(t, "**")
+	for _, p := range []string{"env.yaml", "review.yaml", "problem.yaml"} {
+		if got := c.Classify(p); got != InterviewerOnly {
+			t.Errorf("Classify(%q) = %v, want InterviewerOnly", p, got)
+		}
+	}
+	// The same name inside the candidate tree is ordinary content.
+	if got := c.Classify("candidate/problem.yaml"); got != CandidateVisible {
+		t.Errorf("candidate/problem.yaml = %v, want CandidateVisible", got)
+	}
+}
+
+// A hardlink is a second name for bytes that live somewhere else, and the
+// path gives no sign of it.
+func TestScanRejectsHardlinks(t *testing.T) {
+	dir := t.TempDir()
+	for _, sub := range []string{"candidate", "interviewer"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key := filepath.Join(dir, "interviewer/reference.md")
+	if err := os.WriteFile(key, []byte("answer key"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "candidate/brief.md"), []byte("brief"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(key, filepath.Join(dir, "candidate/util.md")); err != nil {
+		t.Skipf("hardlinks unavailable: %v", err)
+	}
+
+	c := mustClassifier(t, "candidate/**")
+	s, err := c.Scan(os.DirFS(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(s.Irregular, "candidate/util.md") {
+		t.Errorf("hardlink not reported irregular: %v", s.Irregular)
+	}
+	if slices.Contains(s.Candidate, "candidate/util.md") {
+		t.Error("hardlink to an answer key was classified candidate-visible")
+	}
+}

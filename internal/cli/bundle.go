@@ -27,7 +27,7 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
 		return 2
 	}
-	reg, err := openRegistry(*contentRoot, false, stderr)
+	reg, err := openRegistry(*contentRoot, true, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
 		return 1

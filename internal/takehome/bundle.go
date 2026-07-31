@@ -135,7 +135,7 @@ func writeFiles(p *content.Problem, v *variant.Resolved, dir string) error {
 func writeAbout(p *content.Problem, dir string) error {
 	hasHarness := false
 	for _, name := range p.Scan.Candidate {
-		if strings.HasPrefix(name, "harness/") {
+		if strings.Contains(name, "harness/") {
 			hasHarness = true
 			break
 		}

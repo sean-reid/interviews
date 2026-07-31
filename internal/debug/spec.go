@@ -23,6 +23,10 @@ const (
 	PackParam = "fault_pack"
 )
 
+// A fault's check must test the mechanism it broke, not just whether the app
+// is healthy: an end-to-end check can pass while the fault is still present,
+// and it cannot tell a real fix from an injection that never took effect.
+//
 // faultFiles are required in every fault directory besides fault.yaml.
 var faultFiles = []string{"inject.sh", "check.sh", "fix.sh", "notes.md"}
 

@@ -17,7 +17,11 @@ var faultIDRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 type Scenario struct {
 	Problem *content.Problem
 	Env     EnvSpec
-	Faults  []Fault // sorted by id; lexical order is injection order
+	// Faults are sorted by id, and that order is the order they inject and
+	// fix in. Numeric prefixes therefore carry meaning: a fault that takes a
+	// dependency down has to sort before one whose inject or fix needs that
+	// dependency up, or injecting the pack fails partway.
+	Faults []Fault
 }
 
 // PackFaults returns the faults belonging to one fault_pack value, in

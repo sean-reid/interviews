@@ -1,2 +1,6 @@
 /interviews
 .terraform/
+
+# Written by the take-home harnesses when they run in place.
+__pycache__/
+content/*/*/candidate/harness/dataset/

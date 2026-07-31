@@ -80,10 +80,11 @@ func RefreshScore(ctx context.Context, e *debug.Engine) (*grading.Score, error) 
 	}
 	for _, s := range statuses {
 		score.Faults = append(score.Faults, grading.FaultResult{
-			ID: s.ID, Title: s.Title, Tier: string(s.Tier), Fixed: s.Fixed,
+			ID: s.ID, Title: s.Title, Tier: string(s.Tier), Fixed: s.Fixed(),
+			CheckFailed: s.State == debug.CheckCannotRun,
 		})
 		score.Total++
-		if s.Fixed {
+		if s.Fixed() {
 			score.Fixed++
 		}
 	}

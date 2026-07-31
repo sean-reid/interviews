@@ -1,0 +1,4 @@
+id: 03-cannot-check
+title: Check script cannot run
+tier: medium
+packs: [pack-b]

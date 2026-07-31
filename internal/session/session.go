@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sean-reid/interviews/internal/debug"
+	"github.com/sean-reid/interviews/internal/fileio"
 )
 
 // Files the session stack writes into the workdir.
@@ -304,7 +305,8 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 	if err != nil {
 		return fail(err)
 	}
-	if err := os.WriteFile(filepath.Join(m.Engine.Workdir, InfoFile), raw, 0o600); err != nil {
+	// The evidence timer reads this file while a session restart writes it.
+	if err := fileio.WriteAtomic(filepath.Join(m.Engine.Workdir, InfoFile), raw, 0o600); err != nil {
 		return fail(err)
 	}
 	fmt.Fprintf(m.Out, "candidate: %s\nobserver:  %s\n", info.CandidateURL, info.ObserverURL)

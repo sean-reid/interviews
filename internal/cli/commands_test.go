@@ -96,7 +96,7 @@ func TestDescribeText(t *testing.T) {
 		"disciplines: systems, infra",
 		"levels: mid, senior",
 		"time: 60 minute session",
-		"files: 1 candidate-visible, 15 interviewer-only",
+		"files: 1 candidate-visible, 20 interviewer-only",
 		"fault_pack: choice of pack-a, pack-b",
 		"scale: int 3..9",
 		"team_name: string (default umbrella)",

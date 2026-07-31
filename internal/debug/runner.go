@@ -2,6 +2,7 @@ package debug
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -30,6 +31,17 @@ type Runner interface {
 	// Alive reports whether a pid from Start is still running. Start
 	// returning is not evidence the process survived its first moment.
 	Alive(pid int) bool
+}
+
+// exitCode is the process exit status behind a Runner error, or -1 when
+// nothing in the chain came from a process. Scripts report meaning through
+// their exit codes, so the engine has to read them back.
+func exitCode(err error) int {
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ExitCode()
+	}
+	return -1
 }
 
 // ExecRunner is the real Runner.

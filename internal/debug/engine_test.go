@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,14 @@ type fakeRunner struct {
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{scripted: map[string][]error{}}
 }
+
+// exitStatus is a script failure carrying a process exit code, the shape
+// ExecRunner returns for a script that exited non-zero.
+// TestExecRunnerScriptCarriesTheExitCode pins that against a real script.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+func (e exitStatus) ExitCode() int { return int(e) }
 
 func scriptKey(path string) string {
 	return filepath.Base(filepath.Dir(path)) + "/" + filepath.Base(path)
@@ -212,11 +221,88 @@ func TestStatusReflectsChecks(t *testing.T) {
 	if len(statuses) != 2 {
 		t.Fatalf("statuses = %+v", statuses)
 	}
-	if statuses[0].ID != "01-image-typo" || statuses[0].Fixed {
+	if statuses[0].ID != "01-image-typo" || statuses[0].State != CheckBroken {
 		t.Errorf("fault 01 should be broken: %+v", statuses[0])
 	}
-	if statuses[1].ID != "02-net-policy" || !statuses[1].Fixed {
+	if statuses[1].ID != "02-net-policy" || !statuses[1].Fixed() {
 		t.Errorf("fault 02 should be fixed: %+v", statuses[1])
+	}
+}
+
+// A check script that cannot run says nothing about its fault. Reading it
+// as a present fault marks the fault BROKEN for the whole session and puts
+// that in the score, with no sign anywhere that the script is the problem.
+func TestStatusSeparatesACheckThatCannotRun(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-b"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Break(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r.on("01-image-typo/check.sh", exitStatus(CheckCannotRunExit))
+	r.on("02-net-policy/check.sh", exitStatus(1))
+	statuses, err := e.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("statuses = %+v", statuses)
+	}
+	if statuses[0].State != CheckCannotRun || statuses[0].Fixed() {
+		t.Errorf("fault 01 = %+v, want %s and not fixed", statuses[0], CheckCannotRun)
+	}
+	if statuses[1].State != CheckBroken {
+		t.Errorf("fault 02 = %+v, want %s", statuses[1], CheckBroken)
+	}
+}
+
+func TestProveFailsWhenTheCheckCannotRun(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	r.on("01-image-typo/check.sh", exitStatus(CheckCannotRunExit))
+	err := e.Prove(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "faults/01-image-typo/check.sh") ||
+		!strings.Contains(err.Error(), "could not run") {
+		t.Errorf("Prove = %v, want an error naming the check script", err)
+	}
+}
+
+// A check that goes unrunnable only after the fix must not be reported as a
+// fix that did not work.
+func TestProveFailsWhenTheCheckStopsRunningAfterTheFix(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	r.on("01-image-typo/check.sh", errors.New("broken"), exitStatus(CheckCannotRunExit))
+	err := e.Prove(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "could not run") {
+		t.Errorf("Prove = %v, want a check-cannot-run error", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "after the documented fix") {
+		t.Errorf("Prove blamed the fix for a check that could not run: %v", err)
+	}
+}
+
+// The exit code has to survive the real runner, not just the fake: nothing
+// else in the engine reads a script's status.
+func TestExecRunnerScriptCarriesTheExitCode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "check.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &ExecRunner{Stdout: io.Discard, Stderr: io.Discard}
+	err := r.Script(context.Background(), path, dir, nil)
+	if got := exitCode(err); got != CheckCannotRunExit {
+		t.Errorf("exitCode(%v) = %d, want %d", err, got, CheckCannotRunExit)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := exitCode(r.Script(context.Background(), path, dir, nil)); got != 1 {
+		t.Errorf("exit 1 read back as %d", got)
+	}
+	if got := exitCode(errors.New("not a process")); got != -1 {
+		t.Errorf("exitCode of a plain error = %d, want -1", got)
 	}
 }
 
@@ -331,8 +417,48 @@ func TestProveVerifiesRecoveryAfterFullCycle(t *testing.T) {
 	}
 }
 
+// Engine.Down removes the workdir the rendered compose file lives in, so
+// teardown has to work from the project name alone the second time round.
+func TestComposeDownSurvivesTheWorkdirGoing(t *testing.T) {
+	e, r := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if e.ProviderName() != "compose" {
+		t.Fatalf("provider = %q, want compose", e.ProviderName())
+	}
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	renderedFile := filepath.Join(e.Workdir, "rendered/env/docker-compose.yml")
+	if err := e.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	downs := r.callsMatching("down -v --remove-orphans")
+	if len(downs) != 1 || !strings.Contains(downs[0], "-f "+renderedFile) {
+		t.Fatalf("first teardown = %v, want one naming %s", downs, renderedFile)
+	}
+
+	// The workdir is gone now, which is the state a second env down starts
+	// from.
+	if err := e.Down(ctx); err != nil {
+		t.Fatalf("second teardown = %v, want it to work without the rendered file", err)
+	}
+	downs = r.callsMatching("down -v --remove-orphans")
+	if len(downs) != 2 {
+		t.Fatalf("teardowns = %v, want 2", downs)
+	}
+	if strings.Contains(downs[1], "-f ") {
+		t.Errorf("second teardown passed a file that is gone: %q", downs[1])
+	}
+	if !strings.Contains(downs[1], "-p "+e.EnvName()) {
+		t.Errorf("second teardown = %q, want it scoped to project %s", downs[1], e.EnvName())
+	}
+}
+
 func TestEnvNameStableAndBounded(t *testing.T) {
-	v := &variant.Resolved{Problem: "a-very-long-problem-name-that-keeps-going-and-going", InterviewID: "seed"}
+	v := &variant.Resolved{
+		Problem: "a-very-long-problem-name-that-keeps-going-and-going", InterviewID: "seed",
+		Params: map[string]any{"fault_pack": "pack-a", "scale": 5},
+	}
 	a, b := envName(v), envName(v)
 	if a != b {
 		t.Error("envName not deterministic")
@@ -340,9 +466,38 @@ func TestEnvNameStableAndBounded(t *testing.T) {
 	if len(a) > 40 {
 		t.Errorf("envName too long: %s", a)
 	}
-	v2 := &variant.Resolved{Problem: v.Problem, InterviewID: "other"}
+	v2 := &variant.Resolved{Problem: v.Problem, InterviewID: "other", Params: v.Params}
 	if envName(v2) == a {
 		t.Error("different seeds share an env name")
+	}
+}
+
+// Two parameter sets on one interview id are two environments. Sharing a
+// name had the second one reuse the first one's cluster, rendered
+// manifests, and state file.
+func TestEnvNameSeparatesParameterSets(t *testing.T) {
+	name := func(overrides map[string]string) string {
+		t.Helper()
+		e, _ := testEngine(t, nil, overrides)
+		return e.EnvName()
+	}
+	packA, packB := name(map[string]string{"fault_pack": "pack-a"}), name(map[string]string{"fault_pack": "pack-b"})
+	if packA == packB {
+		t.Errorf("pack-a and pack-b on one seed share the env name %q", packA)
+	}
+	if again := name(map[string]string{"fault_pack": "pack-a"}); again != packA {
+		t.Errorf("env name for one variant changed between runs: %q then %q", packA, again)
+	}
+	// Overriding a parameter to the value it would have drawn anyway is the
+	// same environment: the name follows the resolved parameters, not how
+	// they were arrived at.
+	drawn, _ := testEngine(t, nil, nil)
+	pack, err := drawn.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := name(map[string]string{"fault_pack": pack}); got != drawn.EnvName() {
+		t.Errorf("overriding %s to the drawn value gave %q, want %q", pack, got, drawn.EnvName())
 	}
 }
 

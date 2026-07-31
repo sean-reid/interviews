@@ -171,3 +171,66 @@ func TestGradeArgErrors(t *testing.T) {
 		t.Errorf("score without state: exit %d, stderr %q", code, stderr)
 	}
 }
+
+// stateWithOverrides writes state recording the overrides the environment
+// was built with, the way env up does.
+func stateWithOverrides(t *testing.T, overrides map[string]string, injected ...string) string {
+	t.Helper()
+	wd := t.TempDir()
+	st := map[string]any{
+		"problem": "pipeline-meltdown", "interview_id": "test-seed",
+		"overrides": overrides, "pack": overrides["fault_pack"],
+		"injected": injected, "provider": "kind",
+		"created_at": "2026-07-31T00:00:00Z",
+	}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "state.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return wd
+}
+
+// The fault table comes from score.json, written by the environment that
+// was actually built. The Variant row has to agree with it.
+func TestGradeSheetUsesTheRecordedOverrides(t *testing.T) {
+	wd := stateWithOverrides(t, map[string]string{"fault_pack": "pack-a", "scale": "4"}, "01-image-typo")
+
+	code, stdout, stderr := run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", wd)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "| Variant | fault_pack=pack-a, scale=4, team_name=umbrella |") {
+		t.Errorf("sheet variant row ignores the recorded overrides:\n%s", stdout)
+	}
+
+	// An explicit --set is the interviewer overruling the record.
+	code, stdout, stderr = run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", wd, "--set", "fault_pack=pack-b")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "| Variant | fault_pack=pack-b, scale=4, team_name=umbrella |") {
+		t.Errorf("--set did not win over the recorded overrides:\n%s", stdout)
+	}
+}
+
+// Content moves on; a workdir recording a parameter the problem no longer
+// declares must still render a sheet.
+func TestGradeSheetSurvivesStaleRecordedOverrides(t *testing.T) {
+	wd := stateWithOverrides(t, map[string]string{"fault_pack": "pack-a", "gone": "x"}, "01-image-typo")
+	code, stdout, stderr := run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", wd)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "ignoring the overrides recorded in state.json") {
+		t.Errorf("no warning about the unusable record: %q", stderr)
+	}
+	if !strings.Contains(stdout, "| Variant |") {
+		t.Errorf("no sheet rendered:\n%s", stdout)
+	}
+}

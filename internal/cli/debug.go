@@ -154,15 +154,19 @@ func cmdFault(args []string, stdout, stderr io.Writer) int {
 		}
 		w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
 		fmt.Fprintln(w, "FAULT\tTIER\tSTATE\tTITLE")
+		cannotRun := 0
 		for _, s := range statuses {
-			state := "BROKEN"
-			if s.Fixed {
-				state = "FIXED"
+			if s.State == debug.CheckCannotRun {
+				cannotRun++
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Tier, state, s.Title)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Tier, strings.ToUpper(string(s.State)), s.Title)
 		}
 		if err := w.Flush(); err != nil {
 			return 1
+		}
+		if cannotRun > 0 {
+			fmt.Fprintf(stderr, "%d check script(s) exited %d: they could not run, so those faults have no reading. Fix the scripts.\n",
+				cannotRun, debug.CheckCannotRunExit)
 		}
 		return 0
 	case "fix":
@@ -177,6 +181,13 @@ func cmdFault(args []string, stdout, stderr io.Writer) int {
 	}
 	return 0
 }
+
+// Seeds the unattended commands run under. They are fixed so a rerun lands
+// on the same environment as the last one.
+const (
+	proveSeed     = "prove"
+	calibrateSeed = "calibrate"
+)
 
 func cmdProve(args []string, stdout, stderr io.Writer) int {
 	fs, contentRoot := newFlagSet("prove", stderr)
@@ -200,16 +211,17 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	// Prove pins the pack by override, with a deterministic per-pack seed,
-	// so CI covers every pack regardless of what real interviews draw. --set
-	// pins the rest, for proving that a fault's scripts hold for a variant
-	// other than the one those seeds happen to draw.
+	// Prove pins the pack by override on one fixed seed, so CI covers every
+	// pack regardless of what real interviews draw, and --set pins the rest,
+	// for proving a fault's scripts hold for a variant other than the one
+	// that seed happens to draw. Each pack still gets its own cluster and
+	// workdir, because the parameters are part of the environment name.
 	packs, code := provePacks(*contentRoot, problemID, *packFlag, stderr)
 	if code != 0 {
 		return code
 	}
 	for _, pack := range packs {
-		e, err := engineFor(*contentRoot, problemID, "prove-"+pack, "",
+		e, err := engineFor(*contentRoot, problemID, proveSeed, "",
 			append([]string{debug.PackParam + "=" + pack}, sets...), stdout, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "interviews prove: %v\n", err)

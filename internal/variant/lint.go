@@ -17,9 +17,14 @@ type TemplateIssue struct {
 
 // textExtensions are the file types rendered as templates when they ship
 // to a candidate. Binary fixtures and datasets pass through untouched.
+// A type missing here is copied byte for byte, so anything it contains that
+// looks like a template hole reaches the bundle gate unrendered and fails
+// the whole bundle.
 var textExtensions = map[string]bool{
 	".md": true, ".txt": true, ".yaml": true, ".yml": true, ".json": true,
-	".py": true, ".go": true, ".sh": true, ".csv": true,
+	".py": true, ".go": true, ".sh": true, ".csv": true, ".html": true,
+	".js": true, ".ts": true, ".tsx": true, ".css": true, ".sql": true,
+	".tf": true, ".toml": true, ".conf": true, ".xml": true,
 }
 
 // IsTemplated reports whether a candidate file is rendered as a Go template
@@ -120,6 +125,10 @@ func walkNode(n parse.Node, visit func(*parse.FieldNode)) {
 		walkBranch(&node.BranchNode, visit)
 	case *parse.TemplateNode:
 		walkNode(node.Pipe, visit)
+	// {{(.mystery).x}} hangs the field off a chain, so a walk that stops at
+	// field nodes never sees the parameter the template actually reads.
+	case *parse.ChainNode:
+		walkNode(node.Node, visit)
 	}
 }
 

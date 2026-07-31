@@ -39,7 +39,7 @@ func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, bud
 	}
 	entry := &Entry{
 		Problem: e.Variant.Problem, Type: "debugging", Seed: e.Variant.InterviewID,
-		Driver: d.Name(), At: time.Now(), Budget: budget.String(),
+		Pack: pack, Driver: d.Name(), At: time.Now(), Budget: budget.String(),
 	}
 
 	fmt.Fprintf(out, "== calibrating %s pack %s against %s (budget %s)\n",
@@ -89,7 +89,7 @@ func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, bud
 	}
 	for _, s := range statuses {
 		entry.Total++
-		if s.Fixed {
+		if s.Fixed() {
 			entry.Fixed++
 		}
 	}

@@ -162,13 +162,15 @@ func TestEnvRules(t *testing.T) {
 	}
 }
 
+// composeProblem turns the kind fixture into a compose-flavored one.
+func composeProblem(m fstest.MapFS) {
+	m["problem.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(
+		string(m["problem.yaml"].Data), "flavor: kubernetes", "flavor: compose-linux", 1))}
+	m["env.yaml"] = &fstest.MapFile{Data: []byte(composeEnv)}
+	m["env/docker-compose.yml"] = &fstest.MapFile{Data: []byte("services: {}")}
+}
+
 func TestComposeEnvRules(t *testing.T) {
-	composeProblem := func(m fstest.MapFS) {
-		m["problem.yaml"] = &fstest.MapFile{Data: []byte(strings.Replace(
-			string(m["problem.yaml"].Data), "flavor: kubernetes", "flavor: compose-linux", 1))}
-		m["env.yaml"] = &fstest.MapFile{Data: []byte(composeEnv)}
-		m["env/docker-compose.yml"] = &fstest.MapFile{Data: []byte("services: {}")}
-	}
 	s, issues := loadScenario(t, composeProblem)
 	if len(issues) != 0 {
 		t.Fatalf("issues on valid compose scenario: %v", issues)

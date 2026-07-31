@@ -1,8 +1,11 @@
 package grading
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -117,6 +120,28 @@ func TestSheetWithScoreAndHints(t *testing.T) {
 	}
 }
 
+// The sheet must not read a check that could not run as a fault the
+// candidate left unfixed.
+func TestSheetSeparatesABrokenCheckFromAnUnfixedFault(t *testing.T) {
+	score := &Score{
+		Faults: []FaultResult{
+			{ID: "01-image-typo", Title: "Image tag typo", Tier: "easy"},
+			{ID: "02-net-policy", Title: "Label mismatch", Tier: "hard", CheckFailed: true},
+		},
+		Total: 2,
+	}
+	out := sheetFor(t, debuggingManifest(), score, nil)
+	for _, want := range []string{
+		"| 01-image-typo: Image tag typo | easy | no | | |",
+		"| 02-net-policy: Label mismatch | hard | check did not run | | |",
+		"1 of those checks could not run",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sheet missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestSheetWithoutScorePointsAtScore(t *testing.T) {
 	out := sheetFor(t, debuggingManifest(), nil, nil)
 	if !strings.Contains(out, "interviews grade score") {
@@ -139,6 +164,49 @@ func TestSheetForOfflineTypes(t *testing.T) {
 	}
 	if strings.Contains(out, "interviews grade score") {
 		t.Error("offline sheet should not reference the live scorer")
+	}
+}
+
+// Hints are evidence. Two logged close together used to read the same
+// ledger and write over each other, and one of them was simply gone.
+func TestAppendHintKeepsEveryConcurrentHint(t *testing.T) {
+	dir := t.TempDir()
+	const writers = 8
+	var start, done sync.WaitGroup
+	start.Add(1)
+	for i := range writers {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			start.Wait()
+			if err := AppendHint(dir, Hint{Minute: i, Text: fmt.Sprintf("hint %d", i)}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	start.Done()
+	done.Wait()
+
+	hints, err := LoadHints(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hints) != writers {
+		t.Fatalf("ledger holds %d hints, want %d", len(hints), writers)
+	}
+	seen := map[string]bool{}
+	for _, h := range hints {
+		seen[h.Text] = true
+	}
+	for i := range writers {
+		if !seen[fmt.Sprintf("hint %d", i)] {
+			t.Errorf("hint %d was lost: %+v", i, hints)
+		}
+	}
+	// The lock is a file beside the ledger; a writer that finished has to
+	// have let it go.
+	if _, err := os.Stat(filepath.Join(dir, HintsFile+".lock")); !os.IsNotExist(err) {
+		t.Errorf("lockfile left behind: %v", err)
 	}
 }
 

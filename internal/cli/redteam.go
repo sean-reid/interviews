@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/redteam"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 )
@@ -66,8 +67,8 @@ func cmdRedteam(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx := context.Background()
 	for _, pack := range packs {
-		e, err := engineFor(*contentRoot, problemID, "calibrate-"+pack, "",
-			[]string{"fault_pack=" + pack}, stdout, stderr)
+		e, err := engineFor(*contentRoot, problemID, calibrateSeed, "",
+			[]string{debug.PackParam + "=" + pack}, stdout, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "interviews redteam: %v\n", err)
 			return 1

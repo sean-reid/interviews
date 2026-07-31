@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -71,13 +72,21 @@ func TestLedgerRoundTrip(t *testing.T) {
 	}
 
 	base := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	// Several problems land stale, appended out of id order, so the Stale
+	// assertion below fails on any map-iteration order.
 	for _, e := range []Entry{
 		{Problem: "orbit-shop", Type: "debugging", Seed: "cal-1", Driver: "claude",
 			At: base, Fixed: 2, Total: 7, Verdict: Holds},
-		{Problem: "orbit-shop", Type: "debugging", Seed: "cal-2", Driver: "claude",
+		{Problem: "orbit-shop", Type: "debugging", Seed: "cal-2", Pack: "pack-b", Driver: "claude",
 			At: base.Add(time.Hour), Fixed: 5, Total: 7, Verdict: TooEasy},
 		{Problem: "relay", Type: "debugging", Seed: "cal-1", Driver: "api",
 			At: base, Fixed: 1, Total: 6, Verdict: Holds},
+		{Problem: "warp-drive", Type: "debugging", Seed: "cal-1", Driver: "api",
+			At: base, Fixed: 6, Total: 7, Verdict: TooEasy},
+		{Problem: "aligner", Type: "debugging", Seed: "cal-1", Driver: "api",
+			At: base, Fixed: 5, Total: 6, Verdict: TooEasy},
+		{Problem: "beacon", Type: "debugging", Seed: "cal-1", Driver: "api",
+			At: base, Fixed: 4, Total: 6, Verdict: TooEasy},
 	} {
 		if err := Append(root, e); err != nil {
 			t.Fatal(err)
@@ -88,24 +97,30 @@ func TestLedgerRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 3 {
-		t.Fatalf("entries = %d, want 3", len(entries))
+	if len(entries) != 6 {
+		t.Fatalf("entries = %d, want 6", len(entries))
 	}
 	if _, err := os.Stat(filepath.Join(root, LedgerPath)); err != nil {
 		t.Errorf("ledger not at %s: %v", LedgerPath, err)
 	}
 
 	latest := Latest(entries)
-	if got := latest["orbit-shop"]; got.Seed != "cal-2" || got.Verdict != TooEasy {
+	// The pack is on the entry, not folded into the seed: every pack has its
+	// own difficulty and the ledger only means something per pack.
+	if got := latest["orbit-shop"]; got.Seed != "cal-2" || got.Pack != "pack-b" || got.Verdict != TooEasy {
 		t.Errorf("latest orbit-shop = %+v", got)
 	}
 	if got := latest["relay"]; got.Verdict != Holds {
 		t.Errorf("latest relay = %+v", got)
 	}
 
-	stale := Stale(entries)
-	if len(stale) != 1 || stale[0].Problem != "orbit-shop" {
-		t.Errorf("Stale = %+v, want just orbit-shop", stale)
+	var stale []string
+	for _, e := range Stale(entries) {
+		stale = append(stale, e.Problem)
+	}
+	want := []string{"aligner", "beacon", "orbit-shop", "warp-drive"}
+	if !slices.Equal(stale, want) {
+		t.Errorf("Stale = %v, want %v in that order", stale, want)
 	}
 }
 

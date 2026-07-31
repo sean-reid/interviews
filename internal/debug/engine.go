@@ -3,16 +3,20 @@ package debug
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/sean-reid/interviews/internal/fileio"
 	"github.com/sean-reid/interviews/internal/variant"
 )
 
@@ -48,13 +52,31 @@ type State struct {
 	CreatedAt time.Time         `json:"created_at"`
 }
 
+// CheckState is what one fault's check script reported.
+type CheckState string
+
+// Check states, from the fault check contract in spec.go.
+const (
+	// CheckFixed means the check passed: the fault is gone.
+	CheckFixed CheckState = "fixed"
+	// CheckBroken means the check failed: the fault is still present.
+	CheckBroken CheckState = "broken"
+	// CheckCannotRun means the check script could not run, so it reports
+	// nothing about the fault.
+	CheckCannotRun CheckState = "check-cannot-run"
+)
+
 // FaultStatus is one injected fault's current check result.
 type FaultStatus struct {
 	ID    string
 	Title string
 	Tier  Tier
-	Fixed bool
+	State CheckState
 }
+
+// Fixed reports whether the check saw the fault gone. A check that could
+// not run is not a fixed fault and not a broken one.
+func (s FaultStatus) Fixed() bool { return s.State == CheckFixed }
 
 // NewEngine builds an engine for one problem+variant. workdir "" derives
 // the default cache location from the problem and seed.
@@ -111,15 +133,29 @@ func (e *Engine) KindNamespace() (string, error) {
 	return e.RenderString(e.Scenario.Env.Kind.Namespace)
 }
 
-// envName is the stable per-problem-per-interview environment name, safe
-// for cluster and compose-project identifiers.
+// envName is the stable per-variant environment name, safe for cluster and
+// compose-project identifiers. The resolved parameters are part of it, in
+// sorted order: two parameter sets on one interview id are two different
+// environments, and a shared name would have them share a cluster, a
+// workdir, and a state file.
 func envName(v *variant.Resolved) string {
 	problem := v.Problem
 	if len(problem) > 20 {
 		problem = problem[:20]
 	}
-	sum := sha256.Sum256([]byte(v.Problem + "\x00" + v.InterviewID))
-	return "iv-" + problem + "-" + hex.EncodeToString(sum[:4])
+	parts := []string{v.Problem, v.InterviewID}
+	for _, name := range slices.Sorted(maps.Keys(v.Params)) {
+		parts = append(parts, name, fmt.Sprint(v.Params[name]))
+	}
+	h := sha256.New()
+	for _, s := range parts {
+		// Length-prefix each part so no two part lists share a digest.
+		var n [4]byte
+		binary.BigEndian.PutUint32(n[:], uint32(len(s)))
+		h.Write(n[:])
+		h.Write([]byte(s))
+	}
+	return "iv-" + problem + "-" + hex.EncodeToString(h.Sum(nil)[:4])
 }
 
 // Pack returns the variant's fault pack.
@@ -324,10 +360,24 @@ func (e *Engine) Status(ctx context.Context) ([]FaultStatus, error) {
 		if !ok {
 			return nil, fmt.Errorf("state names unknown fault %q", id)
 		}
-		fixed := e.script(ctx, f.Script("check.sh"), nil) == nil
-		out = append(out, FaultStatus{ID: id, Title: f.Spec.Title, Tier: f.Spec.Tier, Fixed: fixed})
+		out = append(out, FaultStatus{ID: id, Title: f.Spec.Title, Tier: f.Spec.Tier,
+			State: e.check(ctx, f)})
 	}
 	return out, nil
+}
+
+// check runs one fault's check script and maps its exit status onto the
+// fault check contract.
+func (e *Engine) check(ctx context.Context, f Fault) CheckState {
+	err := e.script(ctx, f.Script("check.sh"), nil)
+	switch {
+	case err == nil:
+		return CheckFixed
+	case exitCode(err) == CheckCannotRunExit:
+		return CheckCannotRun
+	default:
+		return CheckBroken
+	}
 }
 
 // Fix applies the answer key for one injected fault, or all of them when
@@ -380,14 +430,10 @@ func (e *Engine) saveState(st *State) error {
 	if err != nil {
 		return err
 	}
-	// Timers read this file every 30 seconds while commands write it, so
-	// swap it into place rather than truncating it in front of a reader.
-	// It names every injected fault, so it stays owner-only.
-	tmp := e.statePath() + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, e.statePath())
+	// Timers read this file every 30 seconds while commands write it, so it
+	// swaps into place rather than truncating in front of a reader. It names
+	// every injected fault, so it stays owner-only.
+	return fileio.WriteAtomic(e.statePath(), raw, 0o600)
 }
 
 func (e *Engine) loadState() (*State, error) { return LoadState(e.Workdir) }

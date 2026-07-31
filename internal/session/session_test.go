@@ -731,6 +731,40 @@ func tarNames(t *testing.T, path string) []string {
 	return names
 }
 
+// exitStatus is a script failure carrying a process exit code, the shape
+// ExecRunner returns for a script that exited non-zero.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+func (e exitStatus) ExitCode() int { return int(e) }
+
+// A check that could not run is not a fault left unfixed. The score is what
+// a grading sheet reads, so it has to carry the difference.
+func TestRefreshScoreRecordsACheckThatCannotRun(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo", "02-net-policy")
+	r.scriptErr["01-image-typo/check.sh"] = exitStatus(debug.CheckCannotRunExit)
+
+	score, err := RefreshScore(context.Background(), m.Engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score.Fixed != 1 || score.Total != 2 {
+		t.Errorf("score = %d/%d fixed, want 1/2", score.Fixed, score.Total)
+	}
+	if got := score.Faults[0]; got.Fixed || !got.CheckFailed {
+		t.Errorf("fault with the unrunnable check = %+v", got)
+	}
+	if got := score.Faults[1]; !got.Fixed || got.CheckFailed {
+		t.Errorf("fault with the working check = %+v", got)
+	}
+	written, err := grading.LoadScore(wd)
+	if err != nil || written == nil || !written.Faults[0].CheckFailed {
+		t.Errorf("score.json = %+v, %v", written, err)
+	}
+}
+
 func TestEvidenceBundlesWhatExists(t *testing.T) {
 	m, r, _ := testManager(t, nil)
 	wd := m.Engine.Workdir

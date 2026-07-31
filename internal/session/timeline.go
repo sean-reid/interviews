@@ -44,7 +44,7 @@ func (m *Manager) TimelineTick(ctx context.Context) (err error) {
 	}()
 	enc := json.NewEncoder(f)
 	for _, s := range statuses {
-		if err := enc.Encode(faultSample{T: now, Fault: s.ID, Fixed: s.Fixed}); err != nil {
+		if err := enc.Encode(faultSample{T: now, Fault: s.ID, Fixed: s.Fixed()}); err != nil {
 			return err
 		}
 	}

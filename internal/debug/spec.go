@@ -27,8 +27,18 @@ const (
 // is healthy: an end-to-end check can pass while the fault is still present,
 // and it cannot tell a real fix from an injection that never took effect.
 //
+// check.sh exits 0 when the fault is gone and 1 when it is still present. A
+// check that cannot reach what it needs to look at exits CheckCannotRunExit
+// instead, which says nothing either way about the fault. Without that
+// distinction a typo in the script reads as a fault nobody fixed, for a
+// whole session and in the score.
+//
 // faultFiles are required in every fault directory besides fault.yaml.
 var faultFiles = []string{"inject.sh", "check.sh", "fix.sh", "notes.md"}
+
+// CheckCannotRunExit is the exit code check.sh uses to say the check itself
+// could not run.
+const CheckCannotRunExit = 2
 
 // EnvSpec is the parsed env.yaml.
 type EnvSpec struct {

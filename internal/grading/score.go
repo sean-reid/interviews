@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/sean-reid/interviews/internal/fileio"
 )
 
 // Score is the objective record for a debugging session: which faults the
@@ -29,6 +31,10 @@ type FaultResult struct {
 	Title string `json:"title"`
 	Tier  string `json:"tier"`
 	Fixed bool   `json:"fixed"`
+	// CheckFailed marks a fault whose check script could not run. Fixed is
+	// false there because there is no reading at all, not because the fault
+	// is still present, and a sheet must not claim otherwise.
+	CheckFailed bool `json:"check_failed,omitempty"`
 }
 
 // ScoreFile is the score's name inside a session workdir.
@@ -51,7 +57,7 @@ func WriteScore(workdir string, s *Score) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(workdir, ScoreFile), raw, 0o644)
+	return fileio.WriteAtomic(filepath.Join(workdir, ScoreFile), raw, 0o644)
 }
 
 // LoadScore reads a previously written score; nil without error when none
@@ -71,8 +77,46 @@ func LoadScore(workdir string) (*Score, error) {
 	return &s, nil
 }
 
-// AppendHint adds one hint to the session's ledger.
+// hint lock tuning. The critical section is one small read and one write,
+// so a writer that waits this long is waiting on something stuck.
+const (
+	hintLockWait = 5 * time.Second
+	hintLockPoll = 10 * time.Millisecond
+)
+
+// lockHints takes the hint ledger's lockfile. Appending is a
+// read-modify-write and the writers are separate processes (the CLI, the
+// session timers), so a mutex would not close it.
+func lockHints(workdir string) (func(), error) {
+	path := filepath.Join(workdir, HintsFile+".lock")
+	deadline := time.Now().Add(hintLockWait)
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return func() {
+				_ = f.Close()
+				_ = os.Remove(path)
+			}, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("%s held for over %s; delete it if no interviews command is running",
+				path, hintLockWait)
+		}
+		time.Sleep(hintLockPoll)
+	}
+}
+
+// AppendHint adds one hint to the session's ledger. Hints are evidence, so
+// two logged at once must not cost one of them.
 func AppendHint(workdir string, h Hint) error {
+	unlock, err := lockHints(workdir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	hints, err := LoadHints(workdir)
 	if err != nil {
 		return err
@@ -82,7 +126,7 @@ func AppendHint(workdir string, h Hint) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(workdir, HintsFile), raw, 0o644)
+	return fileio.WriteAtomic(filepath.Join(workdir, HintsFile), raw, 0o644)
 }
 
 // LoadHints reads a session workdir's hints ledger; empty without error when

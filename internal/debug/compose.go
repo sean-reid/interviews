@@ -3,6 +3,7 @@ package debug
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -45,7 +46,15 @@ func (p *composeProvider) Up(ctx context.Context) error {
 		"-f", p.file(), "-p", p.project(), "up", "-d", "--build")
 }
 
+// Down tears the project down by project name when the rendered compose
+// file is gone. Engine.Down removes the workdir the file lives in, so a
+// second teardown, or any workdir loss, would otherwise leave containers
+// running with no route back through the tool.
 func (p *composeProvider) Down(ctx context.Context) error {
-	return p.e.Runner.Command(ctx, "docker", "compose",
-		"-f", p.file(), "-p", p.project(), "down", "-v", "--remove-orphans")
+	args := []string{"compose"}
+	if _, err := os.Stat(p.file()); err == nil {
+		args = append(args, "-f", p.file())
+	}
+	args = append(args, "-p", p.project(), "down", "-v", "--remove-orphans")
+	return p.e.Runner.Command(ctx, "docker", args...)
 }

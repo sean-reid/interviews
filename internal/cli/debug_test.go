@@ -41,6 +41,25 @@ func TestBreakAndFaultArgErrors(t *testing.T) {
 	}
 }
 
+// The fixture's 03-cannot-check exits 2 for real, so this covers the whole
+// path: the script, its exit status, the engine, the table.
+func TestFaultStatusNamesACheckThatCannotRun(t *testing.T) {
+	wd := stateFor(t, "01-image-typo", "03-cannot-check")
+	code, stdout, stderr := run(t, "fault", "status", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--set", "fault_pack=pack-b", "--workdir", wd)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{"01-image-typo", "FIXED", "03-cannot-check", "CHECK-CANNOT-RUN"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("status table missing %q:\n%s", want, stdout)
+		}
+	}
+	if !strings.Contains(stderr, "exited 2") {
+		t.Errorf("stderr says nothing about the broken check: %q", stderr)
+	}
+}
+
 func TestProveArgErrors(t *testing.T) {
 	if code, _, _ := run(t, "prove", "--content", goodRoot); code != 2 {
 		t.Error("prove without problem id should be a usage error")

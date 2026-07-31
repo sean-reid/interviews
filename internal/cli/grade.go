@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -59,6 +60,21 @@ func gradeTarget(contentRoot, problemID, seed, workdir string, sets []string, st
 	if workdir == "" {
 		if workdir, err = debug.DefaultWorkdir(v); err != nil {
 			return nil, nil, "", err
+		}
+	}
+	// The environment recorded what it was built with. Re-deriving the
+	// variant from the seed alone lets a sheet name one fault pack above a
+	// fault table that came from another. An explicit --set still wins.
+	if st, serr := debug.LoadState(workdir); serr == nil && len(st.Overrides) > 0 {
+		merged := maps.Clone(st.Overrides)
+		maps.Copy(merged, overrides)
+		if !maps.Equal(merged, overrides) {
+			recorded, rerr := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, merged)
+			if rerr != nil {
+				fmt.Fprintf(stderr, "warning: ignoring the overrides recorded in %s: %v\n", debug.StateFile, rerr)
+			} else {
+				v = recorded
+			}
 		}
 	}
 	return entry, v, workdir, nil

@@ -64,7 +64,12 @@ func (e *Engine) proveFault(ctx context.Context, f Fault) error {
 	if err := e.sleep(ctx, e.settleFor(f)); err != nil {
 		return err
 	}
-	if e.script(ctx, f.Script("check.sh"), nil) == nil {
+	// A check that cannot run fails like a present fault, and a gate that
+	// takes that for broken-as-expected goes on to blame the documented fix.
+	switch e.check(ctx, f) {
+	case CheckCannotRun:
+		return cannotRunErr(f)
+	case CheckFixed:
 		return fmt.Errorf("%s: check passes immediately after inject; the fault does not break anything", id)
 	}
 	e.logf("-- %s: broken as expected, fixing", id)
@@ -77,10 +82,12 @@ func (e *Engine) proveFault(ctx context.Context, f Fault) error {
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		err := e.script(ctx, f.Script("check.sh"), nil)
-		if err == nil {
+		switch e.check(ctx, f) {
+		case CheckFixed:
 			e.logf("-- %s: fixed", id)
 			return nil
+		case CheckCannotRun:
+			return cannotRunErr(f)
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -92,6 +99,13 @@ func (e *Engine) proveFault(ctx context.Context, f Fault) error {
 			return err
 		}
 	}
+}
+
+// cannotRunErr names the script, because the fix is to that script and
+// nothing about the environment says which one it was.
+func cannotRunErr(f Fault) error {
+	return fmt.Errorf("%s: %s exited %d, so the check itself could not run; fix the check script",
+		f.Spec.ID, f.Script("check.sh"), CheckCannotRunExit)
 }
 
 // settleFor is the longest settle among the given faults, floored by the

@@ -45,10 +45,14 @@ not completion.
 | Fault | Tier | Fixed? | Identified? | Notes |
 |---|---|---|---|---|
 {{- range .Score.Faults}}
-| {{.ID}}: {{.Title}} | {{.Tier}} | {{if .Fixed}}yes{{else}}no{{end}} | | |
+| {{.ID}}: {{.Title}} | {{.Tier}} | {{if .CheckFailed}}check did not run{{else if .Fixed}}yes{{else}}no{{end}} | | |
 {{- end}}
 
 Checks report {{.Score.Fixed}}/{{.Score.Total}} fixed; end-to-end verify {{if .Score.Verified}}passed{{else}}failed{{end}}. Mark Identified? from the session: did they name the root cause, even without fixing it?
+{{- if .BrokenChecks}}
+
+{{.BrokenChecks}} of those checks could not run, so they say nothing about their fault either way. Judge those from the session, and fix the check scripts.
+{{- end}}
 {{else if .IsDebugging}}
 Run ` + "`interviews grade score`" + ` against the live environment to fill this section, then re-render the sheet.
 {{else}}
@@ -101,6 +105,7 @@ type sheetContext struct {
 	LevelNames      []string
 	ParamsLine      string
 	IsDebugging     bool
+	BrokenChecks    int
 	LevelRows       []LevelRow
 	EvidencePrompts []string
 }
@@ -116,6 +121,13 @@ func RenderSheet(w io.Writer, d SheetData) error {
 		Kind:            kind,
 		IsDebugging:     d.Manifest.Type == taxonomy.Debugging,
 		EvidencePrompts: d.Rubric.Types[d.Manifest.Type],
+	}
+	if d.Score != nil {
+		for _, f := range d.Score.Faults {
+			if f.CheckFailed {
+				ctx.BrokenChecks++
+			}
+		}
 	}
 	for _, l := range d.Manifest.Levels {
 		ctx.LevelNames = append(ctx.LevelNames, string(l))

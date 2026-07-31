@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -30,14 +32,17 @@ const (
 
 // Entry is one calibration attempt, appended to the ledger.
 type Entry struct {
-	Problem string    `json:"problem"`
-	Type    string    `json:"type"`
-	Seed    string    `json:"seed"`
-	Driver  string    `json:"driver"`
-	Model   string    `json:"model,omitempty"`
-	At      time.Time `json:"at"`
-	Budget  string    `json:"budget"`
-	Turns   int       `json:"turns,omitempty"`
+	Problem string `json:"problem"`
+	Type    string `json:"type"`
+	Seed    string `json:"seed"`
+	// Pack is the fault pack the run faced; calibration runs one pack at a
+	// time and every pack has its own difficulty.
+	Pack   string    `json:"pack,omitempty"`
+	Driver string    `json:"driver"`
+	Model  string    `json:"model,omitempty"`
+	At     time.Time `json:"at"`
+	Budget string    `json:"budget"`
+	Turns  int       `json:"turns,omitempty"`
 	// Fixed and Total describe debugging outcomes; Notes carries whatever
 	// the type-specific scorer measured.
 	Fixed    int     `json:"fixed,omitempty"`
@@ -137,11 +142,13 @@ func Latest(entries []Entry) map[string]Entry {
 	return out
 }
 
-// Stale returns the problems whose most recent verdict says rework them.
+// Stale returns the problems whose most recent verdict says rework them,
+// ordered by problem id so the ledger diffs cleanly between runs.
 func Stale(entries []Entry) []Entry {
+	latest := Latest(entries)
 	var out []Entry
-	for _, e := range Latest(entries) {
-		if e.Verdict == TooEasy {
+	for _, id := range slices.Sorted(maps.Keys(latest)) {
+		if e := latest[id]; e.Verdict == TooEasy {
 			out = append(out, e)
 		}
 	}

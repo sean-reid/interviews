@@ -145,8 +145,22 @@ the variant, a fresh one-commit git history, and a leak gate that fails the whol
 bundle if anything interviewer-only would leave:
 
 ```sh
-interviews bundle <problem> --seed <id> -o bundle-dir   # or -o drop.tar.gz
+interviews bundle <problem> -o bundle-dir --level mid --due 120h
 ```
+
+The interview id is generated and recorded, so there is nothing to keep. Then
+three one-word commands track where it is, because these are the ones that get
+forgotten:
+
+```sh
+interviews sent                    # handed to the candidate
+interviews returned <path>         # their submission landed here
+interviews reviewed                # the live review is done
+```
+
+`interviews sessions` then answers which ones are waiting on you, with
+deadlines, and `sessions show` prints the bundle and submission paths weeks
+later. `--seed` still pins a variant, for regenerating an identical drop.
 
 ### System design
 

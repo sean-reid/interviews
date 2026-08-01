@@ -10,6 +10,7 @@ import (
 
 	"github.com/sean-reid/interviews/internal/grading"
 	"github.com/sean-reid/interviews/internal/interview"
+	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
 // record puts a session in a registry of this test's own and returns it.
@@ -291,5 +292,126 @@ func TestRecordedWorkdirBeatsDerivingOne(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "the recorded ledger") {
 		t.Errorf("sheet read a derived workdir instead of the recorded one:\n%s", stdout)
+	}
+}
+
+// Handing out a take-home used to mean inventing a seed and keeping it
+// somewhere yourself, which is the problem the registry exists to remove.
+func TestBundleGeneratesAndRecordsASession(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	out := filepath.Join(t.TempDir(), "drop")
+	code, stdout, stderr := run(t, "bundle", "slow-aligner", "--content", goodRoot,
+		"-o", out, "--level", "mid", "--due", "120h")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "session ") || !strings.Contains(stdout, "due:") {
+		t.Errorf("stdout does not report the session it created: %q", stdout)
+	}
+	rec, err := interview.Current()
+	if err != nil {
+		t.Fatalf("bundling recorded no session: %v", err)
+	}
+	if rec.Mode != interview.Offline || rec.Stage != interview.Created {
+		t.Errorf("record = mode %q stage %q", rec.Mode, rec.Stage)
+	}
+	if rec.Level != taxonomy.Mid {
+		t.Errorf("level = %q, want mid", rec.Level)
+	}
+	if rec.BundlePath == "" || rec.DueAt.IsZero() {
+		t.Errorf("record lost the bundle path or the deadline: %+v", rec)
+	}
+	// An explicit seed still pins, for regenerating an identical drop.
+	if code, _, stderr := run(t, "bundle", "slow-aligner", "--content", goodRoot,
+		"-o", filepath.Join(t.TempDir(), "again"), "--seed", "calm-bison-0731"); code != 0 {
+		t.Fatalf("explicit seed: exit %d, stderr %q", code, stderr)
+	}
+	if rec, err := interview.Load("calm-bison-0731"); err != nil || rec.Stage != interview.Created {
+		t.Errorf("explicit seed not recorded: %v", err)
+	}
+}
+
+// The stage verbs are what a list of take-homes is read for: which ones are
+// waiting on me. They get forgotten, so each is one word.
+func TestOfflineStagesMoveASessionAlong(t *testing.T) {
+	rec := record(t, &interview.Session{
+		Seed: "eager-kestrel-0801", Problem: "slow-aligner", Mode: interview.Offline,
+		Stage: interview.Created, DueAt: time.Now().Add(48 * time.Hour),
+	})
+	if code, _, stderr := run(t, "sent"); code != 0 {
+		t.Fatalf("sent: exit %d, stderr %q", code, stderr)
+	}
+	if got := stateOf(t, rec.Seed); !strings.Contains(got, "due in") {
+		t.Errorf("state = %q, want a deadline", got)
+	}
+
+	sub := t.TempDir()
+	if code, stdout, stderr := run(t, "returned", sub); code != 0 ||
+		!strings.Contains(stdout, "grade sheet") {
+		t.Fatalf("returned: exit %d, stdout %q stderr %q", code, stdout, stderr)
+	}
+	after, err := interview.Load(rec.Seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.SubmissionPath == "" {
+		t.Error("returned did not record where the submission landed")
+	}
+	if got := offlineState(after); !strings.Contains(got, "to review") {
+		t.Errorf("state = %q, want it to say the interviewer is next", got)
+	}
+
+	if code, _, stderr := run(t, "reviewed"); code != 0 {
+		t.Fatalf("reviewed: exit %d, stderr %q", code, stderr)
+	}
+	done, err := interview.Load(rec.Seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.ReviewedAt.IsZero() || done.EndedAt.IsZero() {
+		t.Error("a reviewed interview is over and should leave the open list")
+	}
+	// And it still reads as reviewed rather than as a generic ended session.
+	if got := sessionState(done); got != "reviewed" {
+		t.Errorf("state = %q, want reviewed", got)
+	}
+}
+
+func stateOf(t *testing.T, seed string) string {
+	t.Helper()
+	rec, err := interview.Load(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sessionState(rec)
+}
+
+// returned takes the path because grading reads it, and a path that is not
+// there is a typo worth catching now rather than at the debrief.
+func TestReturnedRefusesAMissingPath(t *testing.T) {
+	record(t, &interview.Session{
+		Seed: "eager-kestrel-0801", Problem: "slow-aligner",
+		Mode: interview.Offline, Stage: interview.Sent,
+	})
+	if code, _, _ := run(t, "returned", filepath.Join(t.TempDir(), "nope")); code == 0 {
+		t.Error("accepted a submission path that does not exist")
+	}
+	if code, _, _ := run(t, "returned"); code != 2 {
+		t.Error("returned with no path should be a usage error")
+	}
+}
+
+// A debugging session has no stages: its state comes from the environment,
+// and end is what finishes it.
+func TestStageVerbsRefuseADebuggingSession(t *testing.T) {
+	record(t, &interview.Session{
+		Seed: "calm-bison-0731", Problem: "pipeline-meltdown", Mode: interview.Local,
+	})
+	code, _, stderr := run(t, "sent")
+	if code == 0 {
+		t.Error("marked a debugging session as sent")
+	}
+	if !strings.Contains(stderr, "interviews end") {
+		t.Errorf("stderr does not point at the right command: %q", stderr)
 	}
 }

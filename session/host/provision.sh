@@ -7,34 +7,87 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-KIND_VERSION=v0.29.0
-KUBECTL_VERSION=v1.33.2
-TTYD_VERSION=1.7.7
+# prereqs installs everything the host needs before any of it is configured:
+# the packages, the AWS CLI, and the pinned binaries. It is a function so CI
+# can run this phase alone in a stock container. Nothing here touches systemd
+# or the network beyond fetching, which is what makes that possible, and it is
+# the phase where a package that does not exist on this release shows up.
+prereqs() {
+  KIND_VERSION=v0.29.0
+  KUBECTL_VERSION=v1.33.2
+  TTYD_VERSION=1.7.7
 
-apt-get update
-apt-get install -y --no-install-recommends \
-  docker.io tmux asciinema caddy curl ca-certificates awscli gettext-base sudo
+  apt-get update
+  # No awscli here: Ubuntu 24.04 has no such package, and it took a host that
+  # booted, ran, and never served anything to notice. Version 2 comes from AWS
+  # below, which is what they support anyway.
+  apt-get install -y --no-install-recommends \
+    docker.io tmux asciinema caddy curl ca-certificates unzip gettext-base sudo
 
-arch=$(dpkg --print-architecture)
-case "$arch" in
-  amd64) ttyd_arch=x86_64 ;;
-  arm64) ttyd_arch=aarch64 ;;
-  *)
-    echo "unsupported architecture: $arch" >&2
-    exit 1
-    ;;
-esac
+  arch=$(dpkg --print-architecture)
+  case "$arch" in
+    amd64) ttyd_arch=x86_64 ;;
+    arm64) ttyd_arch=aarch64 ;;
+    *)
+      echo "unsupported architecture: $arch" >&2
+      exit 1
+      ;;
+  esac
 
-fetch_bin() { # url dest
-  curl -fsSL "$1" -o "$2"
-  chmod 0755 "$2"
+  fetch_bin() { # url dest
+    curl -fsSL "$1" -o "$2"
+    chmod 0755 "$2"
+  }
+  # The evidence sync and the tarball fetch both need it, so it has to land
+  # before either.
+  if ! command -v aws >/dev/null 2>&1; then
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ttyd_arch}.zip" -o /tmp/awscliv2.zip
+    unzip -q -o /tmp/awscliv2.zip -d /tmp
+    /tmp/aws/install --update
+    rm -rf /tmp/aws /tmp/awscliv2.zip
+  fi
+
+  [ -x /usr/local/bin/kind ] ||
+    fetch_bin "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-${arch}" /usr/local/bin/kind
+  [ -x /usr/local/bin/kubectl ] ||
+    fetch_bin "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" /usr/local/bin/kubectl
+  [ -x /usr/local/bin/ttyd ] ||
+    fetch_bin "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" /usr/local/bin/ttyd
 }
-[ -x /usr/local/bin/kind ] ||
-  fetch_bin "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-${arch}" /usr/local/bin/kind
-[ -x /usr/local/bin/kubectl ] ||
-  fetch_bin "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" /usr/local/bin/kubectl
-[ -x /usr/local/bin/ttyd ] ||
-  fetch_bin "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" /usr/local/bin/ttyd
+
+# Called with the flag by CI, which stops before anything that needs a real
+# host. Provisioning a host runs the whole script with no arguments.
+if [ "${1:-}" = "--prereqs-only" ]; then
+  prereqs
+  echo "prereqs completed"
+  exit 0
+fi
+
+# Everything from here is logged, and the log is uploaded on the way out
+# whether this succeeds or fails. A host has no ssh, no key pair, and no SSM
+# by design, so without this a failed provision is a black box.
+mkdir -p /var/log
+exec > >(tee -a /var/log/iv-provision.log) 2>&1
+echo "provisioning started $(date -Is)"
+
+prereqs
+
+# Armed after prereqs because it needs the AWS CLI. A failure inside prereqs
+# is the case CI covers instead.
+upload_log() {
+  status=$?
+  echo "provisioning finished $(date -Is) with status $status"
+  if [ -r /etc/interviews/session.env ]; then
+    # shellcheck source=/dev/null
+    evidence=$(. /etc/interviews/session.env && printf '%s' "${IV_EVIDENCE_S3:-}")
+    if [ -n "$evidence" ]; then
+      aws s3 cp /var/log/iv-provision.log "$evidence/provision.log" >/dev/null 2>&1 ||
+        echo "could not upload the provisioning log"
+    fi
+  fi
+  return $status
+}
+trap upload_log EXIT
 
 # interviewer runs the platform and owns the content; candidate owns the
 # tmux server the browser terminal attaches to, and nothing else: no

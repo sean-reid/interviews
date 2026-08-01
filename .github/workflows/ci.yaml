@@ -40,19 +40,21 @@ jobs:
         run: shellcheck -S warning session/host/*.sh
 
   # shellcheck cannot know whether a package exists on the release the host
-  # actually runs. A container is that release, and running the real script's
-  # prereqs phase in one catches a missing package before a host boots, runs,
-  # and serves nothing.
-  host-prereqs:
+  # actually runs, nor whether the script leaves behind what it claims. A
+  # container is that release. This runs the whole of provision.sh offline and
+  # then checks what it left: both host bugs that reached a real box would have
+  # failed here, minutes instead of the quarter hour a provision takes to say
+  # so.
+  host-provision:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container: ubuntu:24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - name: install what a session host needs
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: bash session/host/provision.sh --prereqs-only
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: provision a container as if it were a host
+        run: session/host/offline-test.sh
 
   # The examples are the spec's worked problems, so they have to keep working:
   # a broken one is a wrong spec. Only the debugging toy needs a cluster.

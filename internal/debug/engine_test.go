@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -429,7 +430,7 @@ func TestComposeDownSurvivesTheWorkdirGoing(t *testing.T) {
 		t.Fatal(err)
 	}
 	renderedFile := filepath.Join(e.Workdir, "rendered/env/docker-compose.yml")
-	if err := e.Down(ctx); err != nil {
+	if _, err := e.Down(ctx, true); err != nil {
 		t.Fatal(err)
 	}
 	downs := r.callsMatching("down -v --remove-orphans")
@@ -439,7 +440,7 @@ func TestComposeDownSurvivesTheWorkdirGoing(t *testing.T) {
 
 	// The workdir is gone now, which is the state a second env down starts
 	// from.
-	if err := e.Down(ctx); err != nil {
+	if _, err := e.Down(ctx, true); err != nil {
 		t.Fatalf("second teardown = %v, want it to work without the rendered file", err)
 	}
 	downs = r.callsMatching("down -v --remove-orphans")
@@ -539,5 +540,148 @@ func TestRenderBuiltins(t *testing.T) {
 	want := "dir: /problems/pipeline-meltdown\nwork: " + e.Workdir
 	if string(rendered) != want {
 		t.Errorf("rendered = %q, want %q", rendered, want)
+	}
+}
+
+// Teardown is the last step of an interview and the workdir is where the
+// recording, the score, and the hints live, so a Down that removes the
+// directory destroys the evidence of the session it is ending.
+func TestDownKeepsTheSessionEvidence(t *testing.T) {
+	e, _ := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	evidence := []string{"session.cast", "score.json", "hints.json", "evidence.tar.gz"}
+	for _, name := range evidence {
+		if err := os.WriteFile(filepath.Join(e.Workdir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept, err := e.Down(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range evidence {
+		if _, err := os.Stat(filepath.Join(e.Workdir, name)); err != nil {
+			t.Errorf("teardown removed %s: %v", name, err)
+		}
+		if !slices.ContainsFunc(kept, func(p string) bool { return filepath.Base(p) == name }) {
+			t.Errorf("kept = %v, want it to name %s so the operator knows what is there", kept, name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.Workdir, "rendered")); !os.IsNotExist(err) {
+		t.Errorf("rendered files survived teardown: %v", err)
+	}
+
+	// The state file stays so grading still resolves the variant the
+	// environment was built with, and it has to say the environment is gone.
+	st, err := LoadState(e.Workdir)
+	if err != nil {
+		t.Fatalf("state removed, so a sheet rendered after teardown loses the pack: %v", err)
+	}
+	if st.Live() {
+		t.Error("state still reads as live after teardown")
+	}
+}
+
+// Without evidence there is nothing to protect, and CI proves a pack per
+// run: leaving a workdir per pack behind is a leak.
+func TestDownRemovesAWorkdirHoldingOnlyEnvironmentFiles(t *testing.T) {
+	e, _ := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := e.Down(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kept) != 0 {
+		t.Errorf("kept = %v, want nothing", kept)
+	}
+	if _, err := os.Stat(e.Workdir); !os.IsNotExist(err) {
+		t.Errorf("workdir survived with nothing in it: %v", err)
+	}
+}
+
+func TestPurgeDeletesTheEvidenceToo(t *testing.T) {
+	e, _ := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Workdir, "session.cast"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Down(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(e.Workdir); !os.IsNotExist(err) {
+		t.Errorf("purge left the workdir: %v", err)
+	}
+}
+
+// A torn-down environment is a step to redo. Injecting into one, checking
+// one, or fixing one has to say so instead of failing script by script
+// against a cluster that is not there.
+func TestCommandsRefuseATornDownEnvironment(t *testing.T) {
+	e, _ := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Workdir, "session.cast"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Down(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	for name, err := range map[string]error{
+		"break":  e.Break(ctx),
+		"fix":    e.Fix(ctx, ""),
+		"status": func() error { _, err := e.Status(ctx); return err }(),
+	} {
+		if err == nil {
+			t.Errorf("%s against a torn-down environment succeeded", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "torn down") {
+			t.Errorf("%s error = %q, want it to name the teardown", name, err)
+		}
+	}
+}
+
+// Up reuses the injected list when the pack matches, so a rebuild does not
+// forget faults the app survived. After a teardown there is nothing in
+// there to remember, and inheriting the list makes every one of them read
+// as broken.
+func TestUpAfterTeardownForgetsTheInjectedFaults(t *testing.T) {
+	e, _ := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Break(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Workdir, "session.cast"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Down(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadState(e.Workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Injected) != 0 {
+		t.Errorf("injected = %v after a rebuild, want none: the faults went with the environment", st.Injected)
+	}
+	if !st.Live() {
+		t.Error("state still reads as torn down after env up")
 	}
 }

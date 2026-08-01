@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -218,7 +219,17 @@ func gradeHint(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews grade hint: %v\n", err)
 		return 1
 	}
-	if err := os.MkdirAll(wd, 0o755); err != nil {
+	// A hint goes into an existing ledger unless the interviewer named the
+	// directory. The default one is derived from the seed, so creating it on
+	// demand turns a typo in --seed into a ledger nobody will ever read: this
+	// is the command that gets typed most often and mid-conversation.
+	if *workdir == "" {
+		if _, err := os.Stat(wd); err != nil {
+			fmt.Fprintf(stderr, "interviews grade hint: no session for --seed %s at %s\n", *seed, wd)
+			fmt.Fprintf(stderr, "check the seed, or pass --workdir <dir> to log hints for a session running elsewhere\n")
+			return 1
+		}
+	} else if err := os.MkdirAll(wd, 0o755); err != nil {
 		fmt.Fprintf(stderr, "interviews grade hint: %v\n", err)
 		return 1
 	}
@@ -226,6 +237,6 @@ func gradeHint(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews grade hint: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "logged hint at minute %d\n", min)
+	fmt.Fprintf(stdout, "logged hint at minute %d in %s\n", min, filepath.Join(wd, grading.HintsFile))
 	return 0
 }

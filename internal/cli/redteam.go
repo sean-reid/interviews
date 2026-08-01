@@ -74,7 +74,7 @@ func cmdRedteam(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		result, runErr := redteam.DebugRun(ctx, e, driver, stdout, runBudget)
-		if err := e.Down(ctx); err != nil {
+		if _, err := e.Down(ctx, true); err != nil {
 			fmt.Fprintf(stderr, "interviews redteam: teardown: %v\n", err)
 		}
 		if runErr != nil {

@@ -14,6 +14,10 @@ import (
 	"github.com/sean-reid/interviews/internal/variant"
 )
 
+// answerKeyNotice heads the output that names the injected faults. Both
+// commands get run mid-interview, when a screen is often shared.
+const answerKeyNotice = "-- interviewer only: this names the faults. Do not share this window."
+
 // engineFor loads a debugging problem and builds its engine. Every
 // debugging command funnels through here.
 func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdout, stderr io.Writer) (*debug.Engine, error) {
@@ -65,9 +69,44 @@ func debugFlags(name string, args []string, stderr io.Writer) (contentRoot, seed
 	return *content, *seedFlag, *workdirFlag, setFlags, pos, true
 }
 
+// envFlags is debugFlags plus the teardown flag; only env down takes one.
+func envFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, workdir string, sets []string, purge bool, positional []string, ok bool) {
+	fs, content := newFlagSet(name, stderr)
+	seedFlag := fs.String("seed", "", "interview id selecting the variant")
+	workdirFlag := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
+	purgeFlag := fs.Bool("purge", false, "on down, delete the session evidence along with the environment")
+	var setFlags repeatedFlag
+	fs.Var(&setFlags, "set", "override a parameter (name=value, repeatable)")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return "", "", "", nil, false, nil, false
+	}
+	return *content, *seedFlag, *workdirFlag, setFlags, *purgeFlag, pos, true
+}
+
+// reportTeardown says where the evidence went. Teardown is the last step of
+// an interview, so silence here reads as "the session is filed away" when
+// nothing has been filed anywhere.
+func reportTeardown(stdout io.Writer, e *debug.Engine, kept []string, purged bool) {
+	if purged {
+		fmt.Fprintf(stdout, "environment %s down, %s deleted\n", e.EnvName(), e.Workdir)
+		return
+	}
+	if len(kept) == 0 {
+		fmt.Fprintf(stdout, "environment %s down (no session evidence to keep)\n", e.EnvName())
+		return
+	}
+	fmt.Fprintf(stdout, "environment %s down; the session evidence stays in %s:\n", e.EnvName(), e.Workdir)
+	for _, path := range kept {
+		fmt.Fprintf(stdout, "  %s\n", filepath.Base(path))
+	}
+	fmt.Fprintf(stdout, "copy that directory somewhere durable; interviews grade sheet %s --seed %s still reads it\n",
+		e.Variant.Problem, e.Variant.InterviewID)
+}
+
 func cmdEnv(args []string, stdout, stderr io.Writer) int {
-	usage := "usage: interviews env up|verify|down <problem-id> --seed <id> [--set k=v]"
-	contentRoot, seed, workdir, sets, pos, ok := debugFlags("env", args, stderr)
+	usage := "usage: interviews env up|verify|down <problem-id> --seed <id> [--set k=v] [--purge]"
+	contentRoot, seed, workdir, sets, purge, pos, ok := envFlags("env", args, stderr)
 	if !ok {
 		return 2
 	}
@@ -94,7 +133,10 @@ func cmdEnv(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "healthy")
 		}
 	case "down":
-		err = e.Down(ctx)
+		var kept []string
+		if kept, err = e.Down(ctx, purge); err == nil {
+			reportTeardown(stdout, e, kept, purge)
+		}
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews env %s: %v\n", verb, err)
@@ -117,6 +159,7 @@ func cmdBreak(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews break: %v\n", err)
 		return 1
 	}
+	fmt.Fprintln(stdout, answerKeyNotice)
 	if err := e.Break(context.Background()); err != nil {
 		fmt.Fprintf(stderr, "interviews break: %v\n", err)
 		return 1
@@ -152,6 +195,7 @@ func cmdFault(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "interviews fault status: %v\n", err)
 			return 1
 		}
+		fmt.Fprintln(stdout, answerKeyNotice)
 		w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
 		fmt.Fprintln(w, "FAULT\tTIER\tSTATE\tTITLE")
 		cannotRun := 0
@@ -230,7 +274,9 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 		ctx := context.Background()
 		proveErr := e.Prove(ctx)
 		if !*keep {
-			if err := e.Down(ctx); err != nil {
+			// Purge: an unattended run leaves no evidence worth keeping, and CI
+			// would accumulate a workdir per proven pack.
+			if _, err := e.Down(ctx, true); err != nil {
 				fmt.Fprintf(stderr, "interviews prove: teardown: %v\n", err)
 			}
 		}

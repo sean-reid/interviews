@@ -423,8 +423,59 @@ func TestStartWarnsOnMissingKubeconfig(t *testing.T) {
 	if !strings.Contains(out.String(), "no kubeconfig at "+missing) {
 		t.Errorf("no warning printed: %q", out.String())
 	}
-	if got := r.callsMatching("KUBECONFIG"); len(got) != 0 {
-		t.Errorf("exported a kubeconfig that is not there: %v", got)
+	// Exported even though it is not there. Leaving KUBECONFIG unset hands
+	// the pane whatever cluster the invoking shell points at, which on an
+	// interviewer's laptop is a real one.
+	if got := r.callsMatching("KUBECONFIG=" + missing); len(got) != 1 {
+		t.Errorf("kubeconfig not pinned, so the pane inherits one: %v", r.callsMatching("new-session"))
+	}
+}
+
+// A local pane opens wherever the command ran, which is a checkout of this
+// repository: the first ls lists a directory per fault in the pack.
+func TestLocalStartOpensThePaneAwayFromTheCheckout(t *testing.T) {
+	m, r, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(m.Engine.Workdir, CandidateDir)
+	if got := r.callsMatching("-c " + dir); len(got) != 1 {
+		t.Errorf("pane cwd not set: %v", r.callsMatching("new-session"))
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("pane cwd does not exist: %v", err)
+	}
+	// Local mode cannot keep the candidate off this account, so it has to say
+	// so rather than read as an interview-ready setup.
+	if !strings.Contains(out.String(), "shell on this account") {
+		t.Errorf("local mode did not state what it exposes: %q", out.String())
+	}
+}
+
+// Unset, the pane inherits the interviewer's kubectl context. The scoped
+// candidate kubeconfig exists for exactly this, so local mode mints it
+// instead of making it a second command nobody knows to run.
+func TestLocalStartMintsTheScopedKubeconfig(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	if err := os.WriteFile(m.Engine.KubeconfigPath(), []byte(kubeconfigFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.callsMatching("create token candidate"); len(got) != 1 {
+		t.Errorf("no candidate token minted: %v", got)
+	}
+	want := filepath.Join(m.Engine.Workdir, KubeconfigFile)
+	if got := r.callsMatching("KUBECONFIG=" + want); len(got) != 1 {
+		t.Errorf("pane did not get the scoped kubeconfig: %v", r.callsMatching("new-session"))
+	}
+	if got := r.callsMatching("KUBECONFIG=" + m.Engine.KubeconfigPath()); len(got) != 0 {
+		t.Error("pane got the admin kubeconfig")
 	}
 }
 
@@ -1041,5 +1092,70 @@ func TestNewTokenFormat(t *testing.T) {
 	}
 	if a == b {
 		t.Error("tokens repeat")
+	}
+}
+
+// The checks print as they run, so an evidence pass that says nothing
+// leaves the operator reading a kubectl timeout as the command failing,
+// with no idea whether a bundle was written or where.
+func TestEvidenceSaysWhatItDidAndWhereTheBundleIs(t *testing.T) {
+	m, _, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	tarPath := filepath.Join(m.Engine.Workdir, EvidenceFile)
+	for _, want := range []string{"score: 1/1 faults fixed", "evidence: " + tarPath} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("evidence output missing %q, got %q", want, out.String())
+		}
+	}
+}
+
+// A refresh that could not run must not pass for a clean pass: the score in
+// the bundle is then the previous one, and the sheet will date it.
+func TestEvidenceNamesAFailedRefresh(t *testing.T) {
+	m, _, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "nonexistent-fault")
+
+	err := m.Evidence(context.Background(), EvidenceOptions{Final: true})
+	if err != nil {
+		t.Fatalf("final pass = %v, want it to record the failure and carry on", err)
+	}
+	if !strings.Contains(out.String(), "could not be refreshed") {
+		t.Errorf("failed refresh not reported: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "evidence: ") {
+		t.Errorf("bundle location not reported: %q", out.String())
+	}
+}
+
+// Teardown removes the environment but keeps the workdir, so an evidence
+// pass afterwards must not try to check faults that are gone.
+func TestEvidenceSkipsTheRefreshAfterTeardown(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	st, err := debug.LoadState(m.Engine.Workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.TornDownAt = time.Now()
+	raw, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.Engine.Workdir, debug.StateFile), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.callsMatching("check.sh"); len(got) != 0 {
+		t.Errorf("checked a torn-down environment: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, EvidenceFile)); err != nil {
+		t.Errorf("no bundle written after teardown: %v", err)
 	}
 }

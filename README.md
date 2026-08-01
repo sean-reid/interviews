@@ -51,6 +51,10 @@ interviews fault fix <problem> [fault] --seed <id>
 interviews env down <problem> --seed <id>
 ```
 
+`break` and `fault status` print the fault pack, so they are interviewer-only
+output. `env down` keeps the session evidence and prints where it is; add
+`--purge` to delete that too.
+
 `interviews prove <problem>` is the gate that keeps a scenario honest: on a healthy
 environment every fault must break its check when injected and converge after its
 documented fix, then the whole pack must break and recover end to end. CI runs it on
@@ -61,17 +65,23 @@ environment, writable for the candidate and read-only for the observer:
 
 ```sh
 interviews session start <problem> --seed <id>   # prints candidate and observer URLs
-interviews session timeline <problem> --seed <id> --for 70m
+interviews session timeline <problem> --seed <id> --for 70m   # own window: it samples until it ends
 interviews session evidence <problem> --seed <id> --final
 interviews session stop <problem> --seed <id>
 ```
+
+Evidence lands in the session workdir, which every one of these commands
+prints. Copy that directory somewhere durable before tearing the environment
+down; the grading sheet reads it afterwards.
 
 The two terminal endpoints bind fixed loopback ports, 8001 and 8002, which the
 fronting proxy routes by number, so one host runs one live session at a time.
 `session start` refuses a second one and waits for both endpoints to answer
 before printing any URL, rather than handing you a link nothing serves.
 
-Locally that is one account, your own. On a provisioned host `--candidate-user` puts
+Locally that is one account, your own: the candidate's terminal can read this
+checkout, answer keys included, so local mode is for authoring and rehearsal.
+On a provisioned host `--candidate-user` puts
 the tmux server on a second account that cannot read the content tree, so the
 candidate's terminal has no route to the answer keys.
 
@@ -122,11 +132,13 @@ AI use is expected and scored on its own dimension.
 ```sh
 interviews grade sheet <problem> --seed <id> -o sheet.md
 interviews grade score <problem> --seed <id>    # fill the objective table from the live env
-interviews grade hint <problem> "text" --seed <id> --minute 17 --workdir <dir>
+interviews grade hint <problem> "text" --seed <id> --minute 17 [--workdir <dir>]
 ```
 
+Without `--workdir` a hint goes to the session the seed names, and the command
+refuses a seed with no session, because a typo there is otherwise invisible.
 Hints are logged from wherever the interviewer is sitting, which for a remote session is
-not where the evidence lands. `grade sheet --hints <dir>` merges that ledger into the
+not where the evidence lands, and naming a directory creates it. `grade sheet --hints <dir>` merges that ledger into the
 sheet, so a session host never needs to be reachable to record one.
 
 ## Calibration

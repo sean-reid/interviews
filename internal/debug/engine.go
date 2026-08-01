@@ -50,7 +50,13 @@ type State struct {
 	Injected  []string          `json:"injected"`
 	Provider  string            `json:"provider"`
 	CreatedAt time.Time         `json:"created_at"`
+	// TornDownAt marks a state file kept only so grading can still read what
+	// the environment was built from. The environment itself is gone.
+	TornDownAt time.Time `json:"torn_down_at,omitzero"`
 }
+
+// Live reports whether the environment this state describes still exists.
+func (s *State) Live() bool { return s.TornDownAt.IsZero() }
 
 // CheckState is what one fault's check script reported.
 type CheckState string
@@ -279,7 +285,7 @@ func (e *Engine) Up(ctx context.Context) error {
 	// timeout, and it must not erase the record of faults that are still in
 	// there: a fault the app survives leaves verify passing.
 	injected := []string{}
-	if prev, err := e.loadState(); err == nil && prev.Pack == pack {
+	if prev, err := e.loadState(); err == nil && prev.Live() && prev.Pack == pack {
 		injected = prev.Injected
 	}
 	return e.saveState(&State{
@@ -314,19 +320,62 @@ func (e *Engine) VerifyWait(ctx context.Context) error {
 	}
 }
 
-// Down tears the environment down and removes the workdir.
-func (e *Engine) Down(ctx context.Context) error {
+// engineOwned is what Up puts in a workdir. Everything else there was put
+// there by a session and is evidence.
+var engineOwned = []string{"rendered", "kubeconfig"}
+
+// Down tears the environment down. It removes what Up created and keeps
+// everything else: the workdir is also where the recording, the score, and
+// the hints live, and teardown is the last step of an interview, so
+// deleting the directory wholesale destroys the evidence of the session it
+// is ending. Kept returns the paths left behind, empty when the workdir was
+// removed because it held nothing but environment files. Purge deletes the
+// evidence too, for authoring and CI.
+func (e *Engine) Down(ctx context.Context, purge bool) (kept []string, err error) {
 	if err := e.provider.Down(ctx); err != nil {
-		return err
+		return nil, err
 	}
-	return os.RemoveAll(e.Workdir)
+	if purge {
+		return nil, os.RemoveAll(e.Workdir)
+	}
+	for _, name := range engineOwned {
+		if err := os.RemoveAll(filepath.Join(e.Workdir, name)); err != nil {
+			return nil, err
+		}
+	}
+	// The state file outlives the environment: grading re-resolves the variant
+	// from the parameters it recorded, so removing it would change the sheet a
+	// teardown renders. Stamping it keeps every later command able to say the
+	// environment is gone instead of failing on a script against nothing.
+	if st, err := e.loadState(); err == nil && st.Live() {
+		st.TornDownAt = time.Now()
+		if err := e.saveState(st); err != nil {
+			return nil, err
+		}
+	}
+	entries, err := os.ReadDir(e.Workdir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	for _, ent := range entries {
+		if ent.Name() != StateFile {
+			kept = append(kept, filepath.Join(e.Workdir, ent.Name()))
+		}
+	}
+	if len(kept) == 0 {
+		return nil, os.RemoveAll(e.Workdir)
+	}
+	return kept, nil
 }
 
 // Break injects the variant's fault pack in lexical fault-id order.
 func (e *Engine) Break(ctx context.Context) error {
-	st, err := e.loadState()
+	st, err := e.liveState()
 	if err != nil {
-		return fmt.Errorf("no environment state; run env up first: %w", err)
+		return err
 	}
 	// Record each fault as it lands. A pack that fails partway has still
 	// broken the environment, and a state file that forgets which faults are
@@ -350,9 +399,9 @@ func (e *Engine) Break(ctx context.Context) error {
 
 // Status checks every injected fault.
 func (e *Engine) Status(ctx context.Context) ([]FaultStatus, error) {
-	st, err := e.loadState()
+	st, err := e.liveState()
 	if err != nil {
-		return nil, fmt.Errorf("no environment state; run env up first: %w", err)
+		return nil, err
 	}
 	var out []FaultStatus
 	for _, id := range st.Injected {
@@ -384,9 +433,9 @@ func (e *Engine) check(ctx context.Context, f Fault) CheckState {
 // id is empty. Fixing everything sets IV_FIX_FAST=1 so fixes skip their
 // individual convergence waits; the caller verifies once at the end.
 func (e *Engine) Fix(ctx context.Context, id string) error {
-	st, err := e.loadState()
+	st, err := e.liveState()
 	if err != nil {
-		return fmt.Errorf("no environment state; run env up first: %w", err)
+		return err
 	}
 	ids := st.Injected
 	var extra map[string]string
@@ -437,6 +486,21 @@ func (e *Engine) saveState(st *State) error {
 }
 
 func (e *Engine) loadState() (*State, error) { return LoadState(e.Workdir) }
+
+// liveState is loadState for the commands that need something to act on, so
+// a torn-down environment reads as a step to redo rather than as a pile of
+// script failures against a cluster that is not there.
+func (e *Engine) liveState() (*State, error) {
+	st, err := e.loadState()
+	if err != nil {
+		return nil, fmt.Errorf("no environment state in %s; run interviews env up first: %w", e.Workdir, err)
+	}
+	if !st.Live() {
+		return nil, fmt.Errorf("environment %s was torn down at %s; run interviews env up to build it again",
+			e.EnvName(), st.TornDownAt.Format(time.RFC3339))
+	}
+	return st, nil
+}
 
 // LoadState reads a workdir's environment state.
 func LoadState(workdir string) (*State, error) {

@@ -43,18 +43,31 @@ func (m *Manager) TimelineTick(ctx context.Context) (err error) {
 		}
 	}()
 	enc := json.NewEncoder(f)
+	fixed := 0
 	for _, s := range statuses {
+		if s.Fixed() {
+			fixed++
+		}
 		if err := enc.Encode(faultSample{T: now, Fault: s.ID, Fixed: s.Fixed()}); err != nil {
 			return err
 		}
 	}
-	return enc.Encode(verifySample{T: now, Verify: m.Engine.Verify(ctx) == nil})
+	verified := m.Engine.Verify(ctx) == nil
+	if err := enc.Encode(verifySample{T: now, Verify: verified}); err != nil {
+		return err
+	}
+	// The checks and verify print as they run, so a sample that says nothing
+	// leaves that output looking like a failure.
+	fmt.Fprintf(m.Out, "sampled %d/%d fixed, verify %v, into %s\n", fixed, len(statuses), verified, TimelineFile)
+	return nil
 }
 
 // TimelineRun ticks immediately and then every interval until the
 // duration elapses. Tick errors are reported and the sampler keeps
 // going: one failed sample must not end the record.
 func (m *Manager) TimelineRun(ctx context.Context, interval, duration time.Duration) error {
+	fmt.Fprintf(m.Out, "sampling every %s for %s into %s; this holds the terminal, so leave it in its own window\n",
+		interval, duration, filepath.Join(m.Engine.Workdir, TimelineFile))
 	deadline := m.now().Add(duration)
 	for {
 		if err := m.TimelineTick(ctx); err != nil {

@@ -48,7 +48,11 @@ not completion.
 | {{.ID}}: {{.Title}} | {{.Tier}} | {{if .CheckFailed}}check did not run{{else if .Fixed}}yes{{else}}no{{end}} | | |
 {{- end}}
 
-Checks report {{.Score.Fixed}}/{{.Score.Total}} fixed; end-to-end verify {{if .Score.Verified}}passed{{else}}failed{{end}}. Mark Identified? from the session: did they name the root cause, even without fixing it?
+Checks report {{.Score.Fixed}}/{{.Score.Total}} fixed; end-to-end verify {{if .Score.Verified}}passed{{else}}failed{{end}}, {{.ScoreTaken}}. Mark Identified? from the session: did they name the root cause, even without fixing it?
+{{- if .ScoreStale}}
+
+That reading predates the last hint you logged, so it is not the state the session ended in. Run ` + "`interviews grade score`" + ` against the live environment and re-render before grading.
+{{- end}}
 {{- if .BrokenChecks}}
 
 {{.BrokenChecks}} of those checks could not run, so they say nothing about their fault either way. Judge those from the session, and fix the check scripts.
@@ -101,6 +105,8 @@ type LevelRow struct {
 
 type sheetContext struct {
 	SheetData
+	ScoreTaken      string
+	ScoreStale      bool
 	Kind            string
 	LevelNames      []string
 	ParamsLine      string
@@ -126,6 +132,18 @@ func RenderSheet(w io.Writer, d SheetData) error {
 		for _, f := range d.Score.Faults {
 			if f.CheckFailed {
 				ctx.BrokenChecks++
+			}
+		}
+		// A score is a reading taken at a moment, and the sheet is rendered
+		// later. Undated it reads as the final state of the session, which is
+		// how a stale one ends up in a hiring decision.
+		ctx.ScoreTaken = "measured " + d.Score.At.Format("2006-01-02 15:04 MST")
+		if d.Score.At.IsZero() {
+			ctx.ScoreTaken = "from a score file that does not say when it was measured"
+		}
+		for _, h := range d.Hints {
+			if !d.Score.At.IsZero() && !h.At.IsZero() && h.At.After(d.Score.At) {
+				ctx.ScoreStale = true
 			}
 		}
 	}

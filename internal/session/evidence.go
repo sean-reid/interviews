@@ -36,13 +36,27 @@ var evidenceFiles = []string{
 // this is the final pass, which only records it as score-error.txt.
 func (m *Manager) Evidence(ctx context.Context, opts EvidenceOptions) error {
 	var refreshErr error
-	if st, err := debug.LoadState(m.Engine.Workdir); err == nil && len(st.Injected) > 0 {
-		if _, err := RefreshScore(ctx, m.Engine); err != nil {
+	if st, err := debug.LoadState(m.Engine.Workdir); err == nil && st.Live() && len(st.Injected) > 0 {
+		// The checks run real commands against the environment and print as
+		// they go, so say what that output belongs to. Unlabelled, a check
+		// that timed out reads as this command failing.
+		fmt.Fprintf(m.Out, "reading the checks to refresh %s:\n", grading.ScoreFile)
+		score, err := RefreshScore(ctx, m.Engine)
+		switch {
+		case err != nil:
 			refreshErr = err
+			fmt.Fprintf(m.Out, "the score could not be refreshed, so the bundle carries the last one: %v\n", err)
 			if werr := os.WriteFile(filepath.Join(m.Engine.Workdir, ScoreErrorFile),
 				[]byte(err.Error()+"\n"), 0o644); werr != nil {
 				return werr
 			}
+		default:
+			verified := "failed"
+			if score.Verified {
+				verified = "passed"
+			}
+			fmt.Fprintf(m.Out, "score: %d/%d faults fixed, end-to-end verify %s\n",
+				score.Fixed, score.Total, verified)
 		}
 	}
 
@@ -50,11 +64,15 @@ func (m *Manager) Evidence(ctx context.Context, opts EvidenceOptions) error {
 	if err := bundle(m.Engine.Workdir, tarPath); err != nil {
 		return err
 	}
+	// Nothing else says where the evidence is, and a bundle nobody can find
+	// is a bundle nobody copies off the machine before teardown.
+	fmt.Fprintf(m.Out, "evidence: %s\n", tarPath)
 	if opts.S3 != "" {
 		dest := strings.TrimRight(opts.S3, "/") + "/" + EvidenceFile
 		if err := m.Engine.Runner.Command(ctx, "aws", "s3", "cp", tarPath, dest); err != nil {
 			return err
 		}
+		fmt.Fprintf(m.Out, "uploaded: %s\n", dest)
 	}
 	if opts.Final {
 		return nil

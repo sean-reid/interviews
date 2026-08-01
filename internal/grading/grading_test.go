@@ -95,8 +95,10 @@ func TestSheetWithScoreAndHints(t *testing.T) {
 			{ID: "02-net-policy", Title: "Label mismatch", Tier: "hard", Fixed: false},
 		},
 		Fixed: 1, Total: 2, Verified: false,
+		At: time.Date(2026, 7, 31, 14, 5, 0, 0, time.UTC),
 	}
-	hints := []Hint{{Minute: 12, Text: "what does describe show you?", At: time.Now()}}
+	hints := []Hint{{Minute: 12, Text: "what does describe show you?",
+		At: time.Date(2026, 7, 31, 13, 50, 0, 0, time.UTC)}}
 	out := sheetFor(t, debuggingManifest(), score, hints)
 
 	for _, want := range []string{
@@ -107,7 +109,7 @@ func TestSheetWithScoreAndHints(t *testing.T) {
 		"(this problem grades: mid, senior)",
 		"| 01-image-typo: Image tag typo | easy | yes | | |",
 		"| 02-net-policy: Label mismatch | hard | no | | |",
-		"Checks report 1/2 fixed; end-to-end verify failed.",
+		"Checks report 1/2 fixed; end-to-end verify failed, measured 2026-07-31 14:05 UTC.",
 		"### Tool and AI wrangling - score: __",
 		"- **4**: Orchestrates tools deliberately",
 		"| senior | 3s across the board or better",
@@ -272,5 +274,32 @@ func TestMergeHints(t *testing.T) {
 	// Merging one ledger with itself must not double it.
 	if same := MergeHints(laptop, laptop); len(same) != 2 {
 		t.Errorf("MergeHints(x, x) = %+v, want 2 hints", same)
+	}
+}
+
+// A score is a reading taken at a moment; the sheet is rendered later and
+// goes into a hiring decision. One that predates the last hint cannot be
+// the state the session ended in, and an undated sheet reads as final.
+func TestSheetFlagsAScoreOlderThanTheLastHint(t *testing.T) {
+	measured := time.Date(2026, 7, 31, 14, 5, 0, 0, time.UTC)
+	score := &Score{
+		Faults: []FaultResult{{ID: "01-image-typo", Title: "Image tag typo", Tier: "easy"}},
+		Total:  1, At: measured,
+	}
+	hints := []Hint{{Minute: 40, Text: "look at the events", At: measured.Add(20 * time.Minute)}}
+	out := sheetFor(t, debuggingManifest(), score, hints)
+	if !strings.Contains(out, "measured 2026-07-31 14:05 UTC") {
+		t.Error("sheet does not say when the score was measured")
+	}
+	if !strings.Contains(out, "predates the last hint") {
+		t.Error("sheet renders a score older than the last hint without flagging it")
+	}
+}
+
+func TestSheetSaysWhenAScoreCarriesNoTimestamp(t *testing.T) {
+	score := &Score{Faults: []FaultResult{{ID: "01-image-typo", Tier: "easy"}}, Total: 1}
+	out := sheetFor(t, debuggingManifest(), score, nil)
+	if !strings.Contains(out, "does not say when it was measured") {
+		t.Error("sheet presents an undated score as if it were current")
 	}
 }

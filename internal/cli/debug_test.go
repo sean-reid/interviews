@@ -84,3 +84,15 @@ func TestProveArgErrors(t *testing.T) {
 		t.Errorf("prove --set out of range: exit %d, stderr %q", code, stderr)
 	}
 }
+
+// Both commands print the injected faults and both get run mid-interview,
+// when a screen is often shared. Unmarked, that output reads as ordinary
+// progress.
+func TestAnswerKeyOutputIsMarked(t *testing.T) {
+	wd := stateFor(t, "01-image-typo", "03-cannot-check")
+	_, stdout, stderr := run(t, "fault", "status", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--set", "fault_pack=pack-b", "--workdir", wd)
+	if !strings.Contains(stdout, "interviewer only") {
+		t.Errorf("fault status did not mark its output: %q %q", stdout, stderr)
+	}
+}

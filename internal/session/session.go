@@ -217,10 +217,21 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 
 	r := m.Engine.Runner
 	create := []string{"new-session", "-d", "-s", name}
+	if opts.CandidateUser == "" {
+		dir, err := m.localScratch(ctx, &opts)
+		if err != nil {
+			return nil, err
+		}
+		// Without this the pane opens wherever the command was run, which for
+		// a local session is a checkout of this repository: the first ls shows
+		// the fault directory for every fault in the pack.
+		create = append(create, "-c", dir)
+	}
 	if kc := opts.CandidateKubeconfig; kc != "" {
-		if _, err := os.Stat(kc); err == nil {
-			create = append(create, "-e", "KUBECONFIG="+kc)
-		} else {
+		create = append(create, "-e", "KUBECONFIG="+kc)
+		if _, err := os.Stat(kc); err != nil {
+			// Set it anyway. An unset KUBECONFIG inherits whatever cluster the
+			// invoking shell points at, which is a worse answer than none.
 			fmt.Fprintf(m.Out, "warning: no kubeconfig at %s: the session gets no kubectl access\n", kc)
 		}
 	}
@@ -311,6 +322,31 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 	}
 	fmt.Fprintf(m.Out, "candidate: %s\nobserver:  %s\n", info.CandidateURL, info.ObserverURL)
 	return info, nil
+}
+
+// CandidateDir is the directory a local candidate pane opens in.
+const CandidateDir = "candidate"
+
+// localScratch prepares a local session: a directory for the candidate to
+// work in, and a kubeconfig scoped to the scenario namespace so their
+// kubectl does not inherit the interviewer's clusters. It also says what
+// local mode cannot do, because nothing else says it: the candidate's pane
+// is a shell on this account, with this account's files and answer keys.
+func (m *Manager) localScratch(ctx context.Context, opts *StartOptions) (string, error) {
+	dir := filepath.Join(m.Engine.Workdir, CandidateDir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	if opts.CandidateKubeconfig == "" && m.Engine.ProviderName() == "kind" {
+		// Fail closed: name the scoped kubeconfig either way, so a mint that
+		// failed leaves kubectl broken rather than pointed somewhere real.
+		opts.CandidateKubeconfig = filepath.Join(m.Engine.Workdir, KubeconfigFile)
+		if _, err := m.Kubeconfig(ctx, KubeconfigOptions{}); err != nil {
+			fmt.Fprintf(m.Out, "warning: could not mint the candidate kubeconfig: %v\n", err)
+		}
+	}
+	fmt.Fprintf(m.Out, "local mode: the candidate's pane is a shell on this account, so it can read this checkout, including the fault scripts. Use a provisioned host for a real interview (docs/runbook.md).\n")
+	return dir, nil
 }
 
 // waitListening blocks until the listener answers on its port, giving up
@@ -448,6 +484,7 @@ func (m *Manager) cleanup(ctx context.Context, started []proc, socket string) {
 		}
 	}
 	m.killSession(ctx, socket)
+	fmt.Fprintf(m.Out, "session %s stopped; taking the final evidence pass\n", m.Engine.EnvName())
 }
 
 // killSession ends the tmux session on a socket. A shared server accepts

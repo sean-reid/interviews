@@ -234,3 +234,35 @@ func TestGradeSheetSurvivesStaleRecordedOverrides(t *testing.T) {
 		t.Errorf("no sheet rendered:\n%s", stdout)
 	}
 }
+
+// A typo in --seed used to derive a workdir, create it, and report success,
+// leaving the hint in a ledger nothing will ever read. It is the command
+// typed most often, and typed mid-conversation.
+func TestGradeHintRefusesASeedWithNoSession(t *testing.T) {
+	code, stdout, stderr := run(t, "grade", "hint", "pipeline-meltdown", "asked about the events",
+		"--content", goodRoot, "--seed", "no-such-sessionn", "--minute", "9")
+	if code == 0 {
+		t.Errorf("exit 0 for an unknown seed, stdout %q", stdout)
+	}
+	if !strings.Contains(stderr, "no session for --seed no-such-sessionn") {
+		t.Errorf("stderr does not name the seed: %q", stderr)
+	}
+}
+
+// The remote flow logs hints from the interviewer's machine, where no
+// environment exists, so an explicit directory still gets created.
+func TestGradeHintCreatesAnExplicitWorkdirAndNamesTheLedger(t *testing.T) {
+	wd := filepath.Join(t.TempDir(), "calm-bison-0731")
+	code, stdout, stderr := run(t, "grade", "hint", "pipeline-meltdown", "asked about the events",
+		"--content", goodRoot, "--seed", "test-seed", "--minute", "9", "--workdir", wd)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	ledger := filepath.Join(wd, "hints.json")
+	if !strings.Contains(stdout, ledger) {
+		t.Errorf("output does not name the ledger it wrote: %q", stdout)
+	}
+	if _, err := os.Stat(ledger); err != nil {
+		t.Errorf("no ledger written: %v", err)
+	}
+}

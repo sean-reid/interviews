@@ -3,4 +3,18 @@
 
 # Written by the take-home harnesses when they run in place.
 __pycache__/
-content/*/*/candidate/harness/dataset/
+
+# Credentials, and the files that carry them by accident.
+.env
+.env.*
+
+# Terraform state records the generated candidate, observer, and app tokens in
+# plaintext, so it is a live session credential. A tfvars file is where a bucket
+# name or a secret would sit. The provider lock files are deliberately not here:
+# they pin hashes and belong in the repository.
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log

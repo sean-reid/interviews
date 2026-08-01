@@ -241,6 +241,9 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "show" {
 		return sessionsShow(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "log" {
+		return sessionsLog(args[1:], stdout, stderr)
+	}
 	fs := newBareFlagSet("sessions", stderr)
 	all := fs.Bool("all", false, "include sessions that have ended")
 	if _, err := parsePermuted(fs, args); err != nil {
@@ -553,4 +556,61 @@ func cmdStage(stage interview.Stage) command {
 		}
 		return 0
 	}
+}
+
+// sessionsLog prints what a provisioned host has said about its own boot.
+// There is no ssh and no console access, so the log the host uploads is the
+// only way to watch one come up, and --follow makes it a live view.
+func sessionsLog(args []string, stdout, stderr io.Writer) int {
+	fs := newBareFlagSet("sessions log", stderr)
+	seedFlag := fs.String("seed", "", "session to read (default: the current one)")
+	follow := fs.Bool("follow", false, "keep printing as the host says more")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return 2
+	}
+	seed := *seedFlag
+	if len(pos) == 1 {
+		seed = pos[0]
+	}
+	rec, err := currentOr(seed, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews sessions log: %v\n", err)
+		return 1
+	}
+	if rec.Mode != interview.AWS {
+		fmt.Fprintf(stderr, "interviews sessions log: %s runs %s, and only a provisioned host reports a boot\n",
+			rec.Seed, rec.Mode)
+		return 1
+	}
+	cfg := interview.LoadConfig()
+	env := os.Environ()
+	if cfg.AWS != nil && cfg.AWS.Profile != "" {
+		env = append(env, "AWS_PROFILE="+cfg.AWS.Profile)
+	}
+	body, err := fetchProvisionLog(env, rec.Evidence)
+	if err != nil && body == "" {
+		fmt.Fprintf(stderr, "interviews sessions log: nothing uploaded yet for %s\n", rec.Seed)
+		fmt.Fprintf(stderr, "the host writes this at milestones, so a fresh provision has not reached one\n")
+		return 1
+	}
+	fmt.Fprint(stdout, body)
+	if !*follow {
+		return 0
+	}
+	seen := len(body)
+	deadline := time.Now().Add(bootTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(bootPoll)
+		next, err := fetchProvisionLog(env, rec.Evidence)
+		if err != nil || len(next) <= seen {
+			continue
+		}
+		fmt.Fprint(stdout, next[seen:])
+		seen = len(next)
+		if strings.Contains(next, "provisioning finished") {
+			return 0
+		}
+	}
+	return 0
 }

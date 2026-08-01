@@ -51,7 +51,7 @@ var synopses = map[string]string{
 	"start":    `interviews start <problem-id> [--level senior] [--seed id] [--no-break] [--remote [--ttl 120] [--instance-type t]]`,
 	"hint":     `interviews hint "what you told them" [--minute n] [--seed id]`,
 	"end":      `interviews end [<seed>] [--purge]`,
-	"sessions": `interviews sessions [--all] | interviews sessions show [<seed>]`,
+	"sessions": `interviews sessions [--all] | sessions show [<seed>] | sessions log [<seed>] [--follow]`,
 	"list":     `interviews list [--type TYPE] [--level LEVEL] [--json]`,
 	"describe": `interviews describe <problem-id> [--seed id] [--json]`,
 	"validate": `interviews validate [--content dir]`,
@@ -88,14 +88,15 @@ var synopses = map[string]string{
 // verbs a parent command dispatches on, so its help lists them instead of
 // only appearing when the invocation is already wrong.
 var verbs = map[string][]string{
-	"setup":    {"aws: create the evidence bucket and upload the platform and content bundle"},
-	"config":   {"set content <path>: where the problems are checked out", "unset content: fall back to $INTERVIEWS_CONTENT or ./content"},
-	"env":      {"up: build the environment and wait for verify", "verify: run the health check once", "down: tear it down, keeping the session evidence"},
-	"fault":    {"status: check every injected fault", "fix: apply the answer key for one fault or all of them"},
-	"grade":    {"sheet: render the grading sheet", "score: fill the objective record from the live environment", "hint: log a hint against a session elsewhere"},
-	"session":  {"start: tmux, recorder, and both terminal endpoints", "stop: kill them and take the final evidence", "evidence: refresh the score and bundle the workdir", "timeline: sample fault state over the session", "kubeconfig: mint the candidate kubeconfig", "proxy: forward a loopback port, which start runs for a compose app"},
-	"sessions": {"show: everything about one session, including the URLs"},
-	"redteam":  {"ledger: what past calibration runs found"},
+	"setup":   {"aws: create the evidence bucket and upload the platform and content bundle"},
+	"config":  {"set content <path>: where the problems are checked out", "unset content: fall back to $INTERVIEWS_CONTENT or ./content"},
+	"env":     {"up: build the environment and wait for verify", "verify: run the health check once", "down: tear it down, keeping the session evidence"},
+	"fault":   {"status: check every injected fault", "fix: apply the answer key for one fault or all of them"},
+	"grade":   {"sheet: render the grading sheet", "score: fill the objective record from the live environment", "hint: log a hint against a session elsewhere"},
+	"session": {"start: tmux, recorder, and both terminal endpoints", "stop: kill them and take the final evidence", "evidence: refresh the score and bundle the workdir", "timeline: sample fault state over the session", "kubeconfig: mint the candidate kubeconfig", "proxy: forward a loopback port, which start runs for a compose app"},
+	"sessions": {"show: everything about one session, including the URLs",
+		"log: what a provisioned host said as it booted, with --follow to watch"},
+	"redteam": {"ledger: what past calibration runs found"},
 }
 
 func synopsis(name string) string {

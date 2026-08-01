@@ -17,12 +17,21 @@ prereqs() {
   KUBECTL_VERSION=v1.33.2
   TTYD_VERSION=1.7.7
 
-  apt-get update
+  # A cloud image runs unattended-upgrades on boot and holds the dpkg lock,
+  # so wait for it rather than racing it, and say so while waiting.
+  apt_opts="-o DPkg::Lock::Timeout=600"
+  echo "apt: waiting for any boot-time upgrade to release the lock"
+  # shellcheck disable=SC2086
+  apt-get $apt_opts update
   # No awscli here: Ubuntu 24.04 has no such package, and it took a host that
   # booted, ran, and never served anything to notice. Version 2 comes from AWS
   # below, which is what they support anyway.
-  apt-get install -y --no-install-recommends \
-    docker.io tmux asciinema caddy curl ca-certificates unzip gettext-base sudo
+  # docker.io is the engine only: docker compose is a separate plugin package,
+  # and a scenario that uses compose fails at env up without it.
+  # shellcheck disable=SC2086
+  apt-get $apt_opts install -y --no-install-recommends \
+    docker.io docker-compose-v2 tmux asciinema caddy curl ca-certificates \
+    unzip gettext-base sudo
 
   arch=$(dpkg --print-architecture)
   case "$arch" in
@@ -53,6 +62,19 @@ prereqs() {
     fetch_bin "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" /usr/local/bin/kubectl
   [ -x /usr/local/bin/ttyd ] ||
     fetch_bin "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" /usr/local/bin/ttyd
+
+  # Each of these has to work, not merely be present. Two releases running,
+  # a package that installed cleanly and then could not do its job is how
+  # both host bugs reached a candidate-facing box.
+  docker --version
+  docker compose version
+  aws --version
+  /usr/local/bin/kind --version
+  /usr/local/bin/kubectl version --client=true -o yaml >/dev/null
+  /usr/local/bin/ttyd --version
+  tmux -V
+  asciinema --version
+  caddy version
 }
 
 # Called with the flag by CI, which stops before anything that needs a real
@@ -63,6 +85,31 @@ if [ "${1:-}" = "--prereqs-only" ]; then
   exit 0
 fi
 
+# Uploaded at milestones as well as on exit, because a provision that is
+# merely slow looks identical to one that is stuck when the only report comes
+# at the end. Failures are cheap to diagnose; being blind for ten minutes is
+# not.
+milestone() {
+  echo "=== $1 $(date -Is) ==="
+  if [ -r /etc/interviews/session.env ] && command -v aws >/dev/null 2>&1; then
+    # shellcheck source=/dev/null
+    dest=$(. /etc/interviews/session.env && printf '%s' "${IV_EVIDENCE_S3:-}")
+    [ -n "$dest" ] && aws s3 cp /var/log/iv-provision.log "$dest/provision.log" >/dev/null 2>&1 || true
+  fi
+}
+
+# The CLI is installed before anything else so the log below can be uploaded
+# from the very first milestone. curl and python3 are on the base image, which
+# is what makes this possible without apt.
+bootstrap_aws() {
+  command -v aws >/dev/null 2>&1 && return 0
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  python3 -m zipfile -e /tmp/awscliv2.zip /tmp/
+  chmod +x /tmp/aws/install /tmp/aws/dist/aws
+  /tmp/aws/install --update
+  rm -rf /tmp/aws /tmp/awscliv2.zip
+}
+
 # Everything from here is logged, and the log is uploaded on the way out
 # whether this succeeds or fails. A host has no ssh, no key pair, and no SSM
 # by design, so without this a failed provision is a black box.
@@ -70,7 +117,11 @@ mkdir -p /var/log
 exec > >(tee -a /var/log/iv-provision.log) 2>&1
 echo "provisioning started $(date -Is)"
 
+bootstrap_aws || echo "could not install the aws cli early: milestones will start late"
+milestone "provisioning started, installing prerequisites"
+
 prereqs
+milestone "prereqs done"
 
 # Armed after prereqs because it needs the AWS CLI. A failure inside prereqs
 # is the case CI covers instead.
@@ -145,6 +196,29 @@ HOSTNAME_FQDN="$HOSTNAME_FQDN" envsubst '${HOSTNAME_FQDN} ${IV_CANDIDATE_TOKEN} 
 systemctl daemon-reload
 systemctl enable --now docker
 systemctl restart caddy
+milestone "caddy restarted"
 systemctl enable --now iv-ttl.service
-systemctl enable --now iv-session.service
+# The session is the interview, so its failure is the provision's failure. It
+# gets started without set -e killing the script first, because the whole
+# point is to capture why before anything exits: there is no ssh to come back
+# with, and the log below is uploaded either way.
+session_started=1
+milestone "starting the session, which builds the environment"
+systemctl enable iv-session.service
+systemctl start iv-session.service || session_started=0
+if [ "$session_started" = 0 ]; then
+  echo "=== iv-session.service did not start ==="
+  systemctl status --no-pager --full iv-session.service 2>&1 || true
+  echo "=== journal ==="
+  journalctl --no-pager --lines=100 -u iv-session.service 2>&1 || true
+  echo "=== end of session diagnostics ==="
+fi
+
 systemctl enable --now iv-timeline.timer iv-evidence-sync.timer
+
+# Reported last so the log carries everything above it. A host serving nothing
+# is not a provisioned host, and saying so is what stops it reading as ready.
+if [ "$session_started" = 0 ]; then
+  echo "provisioning reached the end but the session never started"
+  exit 1
+fi

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sean-reid/interviews/internal/interview"
@@ -117,10 +118,12 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		fmt.Fprintf(stdout, "not waiting for boot. interviews sessions show prints the URLs.\n")
 		return 0
 	}
-	if err := waitForHost(stdout, rec.Host); err != nil {
+	tail := &logTail{env: env, evidence: rec.Evidence}
+	if err := waitForHost(stdout, rec.Host, rec.CandidateURL, tail); err != nil {
 		fmt.Fprintf(stderr, "\ninterviews start: %v\n", err)
-		fmt.Fprintf(stderr, "the host is up but not serving yet. The URLs are recorded either way:\n"+
-			"  interviews sessions show --seed %s\n", seed)
+		fmt.Fprintf(stderr, "the URLs are recorded either way: interviews sessions show --seed %s\n"+
+			"the host uploads why it failed, which needs no access to the box:\n"+
+			"  aws s3 cp %sprovision.log -\n", seed, rec.Evidence)
 		return 1
 	}
 	fmt.Fprintf(stdout, "\ncandidate: %s\nobserver:  %s\n", rec.CandidateURL, rec.ObserverURL)
@@ -245,14 +248,28 @@ func outputs(env []string, dir string) (map[string]string, error) {
 	return out, nil
 }
 
-// waitForHost polls the health endpoint until the host serves it. Caddy
-// answers well before the environment finishes building, so this says the
-// host is reachable, not that the interview is ready.
-func waitForHost(out io.Writer, ip string) error {
+// waitForHost waits for the host to be reachable and then for the interview
+// to actually be served. Two stages on purpose: the proxy answers /healthz
+// long before the session stack exists, so treating that as ready hands over
+// URLs that return 502. The candidate route is the honest signal.
+func waitForHost(out io.Writer, ip, candidate string, tail *logTail) error {
 	if ip == "" {
 		return fmt.Errorf("no public ip recorded")
 	}
-	url := fmt.Sprintf("https://%s.sslip.io/healthz", ip)
+	if err := poll(out, fmt.Sprintf("https://%s.sslip.io/healthz", ip), "host reachable", tail); err != nil {
+		return err
+	}
+	if candidate == "" {
+		return nil
+	}
+	return poll(out, candidate, "interview ready", tail)
+}
+
+// poll waits for one url to answer 200. While waiting it prints whatever the
+// host has said about itself, so a slow provision reads as progress instead
+// of being indistinguishable from a stuck one. That distinction cost ten
+// blind minutes once.
+func poll(out io.Writer, url, done string, tail *logTail) error {
 	fmt.Fprintf(out, "waiting for %s\n", url)
 	client := &http.Client{Timeout: 10 * time.Second}
 	deadline := time.Now().Add(bootTimeout)
@@ -261,14 +278,63 @@ func waitForHost(out io.Writer, ip string) error {
 		if err == nil {
 			_ = res.Body.Close()
 			if res.StatusCode == http.StatusOK {
-				fmt.Fprintf(out, "host answering\n")
+				tail.print(out)
+				fmt.Fprintf(out, "%s\n", done)
 				return nil
 			}
 		}
 		if time.Now().After(deadline) {
+			tail.print(out)
 			return fmt.Errorf("%s did not answer within %s", url, bootTimeout)
 		}
-		fmt.Fprint(out, ".")
+		if !tail.print(out) {
+			fmt.Fprint(out, ".")
+		}
 		time.Sleep(bootPoll)
 	}
+}
+
+// logTail reports what is new in the host's provisioning log each time it is
+// asked. The host uploads that log at milestones, so this is the closest
+// thing to watching a boot on a box with no way in.
+type logTail struct {
+	env      []string
+	evidence string
+	seen     int
+}
+
+// print writes any lines the log has gained, and reports whether it wrote
+// anything.
+func (t *logTail) print(out io.Writer) bool {
+	if t == nil || t.evidence == "" {
+		return false
+	}
+	body, err := fetchProvisionLog(t.env, t.evidence)
+	if err != nil || len(body) <= t.seen {
+		return false
+	}
+	fresh := body[t.seen:]
+	t.seen = len(body)
+	// Only the milestone lines: the rest is apt and download chatter, and the
+	// point here is to see how far it has got.
+	wrote := false
+	for _, line := range strings.Split(fresh, "\n") {
+		if strings.HasPrefix(line, "===") || strings.HasPrefix(line, "provisioning ") {
+			fmt.Fprintf(out, "\n%s", line)
+			wrote = true
+		}
+	}
+	if wrote {
+		fmt.Fprintln(out)
+	}
+	return wrote
+}
+
+// fetchProvisionLog streams the log out of the bucket. Absent is not an
+// error: the host has not uploaded anything yet.
+func fetchProvisionLog(env []string, evidence string) (string, error) {
+	cmd := exec.Command("aws", "s3", "cp", strings.TrimRight(evidence, "/")+"/provision.log", "-")
+	cmd.Env = env
+	out, err := cmd.Output()
+	return string(out), err
 }

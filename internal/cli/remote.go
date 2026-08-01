@@ -33,6 +33,27 @@ type remoteOptions struct {
 	Infra        string
 }
 
+// terraformEnv gives one interview its own terraform data directory while
+// every session shares the module source. Without this, two sessions started
+// from the same checkout both reconfigure .terraform in place and fight over
+// which backend key it points at, which is not hypothetical: two concurrent
+// provisions did exactly that, and one came back with no host at all.
+func terraformEnv(profile, seed string) ([]string, error) {
+	home, err := interview.Home()
+	if err != nil {
+		return nil, err
+	}
+	data := filepath.Join(home, "terraform", seed)
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		return nil, err
+	}
+	env := append(os.Environ(), "TF_DATA_DIR="+data)
+	if profile != "" {
+		env = append(env, "AWS_PROFILE="+profile)
+	}
+	return env, nil
+}
+
 // StateKey is where one interview's terraform state lives in the evidence
 // bucket. A key per interview, in the bucket rather than on a laptop, so any
 // interviewer can destroy any host and losing a checkout strands nothing.
@@ -55,9 +76,10 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		return 1
 	}
 	dir := filepath.Join(root, "interview")
-	env := os.Environ()
-	if a.Profile != "" {
-		env = append(env, "AWS_PROFILE="+a.Profile)
+	env, err := terraformEnv(a.Profile, seed)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews start: %v\n", err)
+		return 1
 	}
 	who, err := callerIdentity(env)
 	if err != nil {
@@ -139,9 +161,14 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 // runs first removes the only reason to have provisioned it.
 func endRemote(rec *interview.Session, stdout, stderr io.Writer) int {
 	cfg := interview.LoadConfig()
-	env := os.Environ()
-	if cfg.AWS != nil && cfg.AWS.Profile != "" {
-		env = append(env, "AWS_PROFILE="+cfg.AWS.Profile)
+	profile := ""
+	if cfg.AWS != nil {
+		profile = cfg.AWS.Profile
+	}
+	env, err := terraformEnv(profile, rec.Seed)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews end: %v\n", err)
+		return 1
 	}
 	dir := rec.TerraformDir
 	if dir == "" {

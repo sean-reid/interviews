@@ -63,6 +63,10 @@ prereqs() {
   [ -x /usr/local/bin/ttyd ] ||
     fetch_bin "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" /usr/local/bin/ttyd
 
+  # cloud-init runs user-data with no HOME, and asciinema refuses to start
+  # without one. The session units set their own, but this check runs here.
+  export HOME=${HOME:-/root}
+
   # Each of these has to work, not merely be present. Two releases running,
   # a package that installed cleanly and then could not do its job is how
   # both host bugs reached a candidate-facing box.
@@ -89,6 +93,15 @@ fi
 # merely slow looks identical to one that is stuck when the only report comes
 # at the end. Failures are cheap to diagnose; being blind for ten minutes is
 # not.
+# upload_quiet pushes the log with no commentary, for the timer below.
+upload_quiet() {
+  if [ -r /etc/interviews/session.env ] && command -v aws >/dev/null 2>&1; then
+    # shellcheck source=/dev/null
+    dest=$(. /etc/interviews/session.env && printf '%s' "${IV_EVIDENCE_S3:-}")
+    [ -n "$dest" ] && aws s3 cp /var/log/iv-provision.log "$dest/provision.log" >/dev/null 2>&1 || true
+  fi
+}
+
 milestone() {
   echo "=== $1 $(date -Is) ==="
   if [ -r /etc/interviews/session.env ] && command -v aws >/dev/null 2>&1; then
@@ -120,6 +133,12 @@ echo "provisioning started $(date -Is)"
 bootstrap_aws || echo "could not install the aws cli early: milestones will start late"
 milestone "provisioning started, installing prerequisites"
 
+# Milestones alone leave a gap: a step that hangs between two of them uploads
+# nothing, which is exactly what happened while apt sat there. So the log also
+# goes up on a timer, and the tail is always current within half a minute.
+( while :; do sleep 30; upload_quiet; done ) &
+uploader=$!
+
 prereqs
 milestone "prereqs done"
 
@@ -127,6 +146,7 @@ milestone "prereqs done"
 # is the case CI covers instead.
 upload_log() {
   status=$?
+  [ -n "${uploader:-}" ] && kill "$uploader" 2>/dev/null
   echo "provisioning finished $(date -Is) with status $status"
   if [ -r /etc/interviews/session.env ]; then
     # shellcheck source=/dev/null

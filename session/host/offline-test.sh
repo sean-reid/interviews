@@ -34,10 +34,12 @@ if [ -z "$tarball" ]; then
 fi
 echo "tarball: $tarball ($(wc -c <"$tarball") bytes)"
 
+# HOME is unset on purpose: cloud-init runs user-data without one, and a tool
+# that needs it fails there and nowhere else. asciinema did exactly that.
 docker run --rm --platform linux/amd64 \
   -v "$here:/host:ro" -v "$tarball:/tarball.tar.gz:ro" \
   -e DEBIAN_FRONTEND=noninteractive \
-  ubuntu:24.04 bash -euo pipefail -c '
+  ubuntu:24.04 env -u HOME bash -euo pipefail -c '
 mkdir -p /usr/local/sbin /etc/interviews
 # Recorded, not run: a container has no systemd, and what matters here is
 # that the script gets this far and in this order.

@@ -56,6 +56,14 @@ aws iam put-user-policy --user-name interviews-terraform \
   --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
 ```
 
+The policy has been run end to end against a real account: it creates the
+bucket, provisions a host with its role and instance profile, and destroys all
+of it. Four actions were missing when it was written from reading the modules,
+which is worth knowing if you extend them. A data source reads attributes as
+well as resources, and the console actions are there for operability rather
+than for terraform: a host has no ssh, so `ec2:GetConsoleOutput` is the only
+way to see one fail from outside.
+
 You can check an attachment without provisioning anything. A call that comes
 back `NoSuchEntity` was permitted; one that comes back `AccessDenied` was not:
 

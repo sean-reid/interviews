@@ -4,7 +4,9 @@
     {
       "Sid": "ProviderIdentity",
       "Effect": "Allow",
-      "Action": ["sts:GetCallerIdentity"],
+      "Action": [
+        "sts:GetCallerIdentity"
+      ],
       "Resource": "*"
     },
     {
@@ -19,7 +21,11 @@
         "ec2:DescribeAccountAttributes"
       ],
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "REGION"}}
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "REGION"
+        }
+      }
     },
     {
       "Sid": "SessionHostLifecycle",
@@ -45,7 +51,6 @@
         "ec2:DescribeInstanceStatus",
         "ec2:DescribeInstanceAttribute",
         "ec2:DescribeInstanceCreditSpecifications",
-        "ec2:DescribeInstanceMetadataDefaults",
         "ec2:ModifyInstanceAttribute",
         "ec2:DescribeVolumes",
         "ec2:DescribeNetworkInterfaces",
@@ -54,7 +59,11 @@
         "ec2:DeleteTags"
       ],
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "REGION"}}
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "REGION"
+        }
+      }
     },
     {
       "Sid": "SessionRoleAndProfileOnlyUnderTheIvPrefix",
@@ -87,14 +96,22 @@
     {
       "Sid": "HandTheSessionRoleToTheInstance",
       "Effect": "Allow",
-      "Action": ["iam:PassRole"],
+      "Action": [
+        "iam:PassRole"
+      ],
       "Resource": "arn:aws:iam::ACCOUNT_ID:role/iv-*",
-      "Condition": {"StringEquals": {"iam:PassedToService": "ec2.amazonaws.com"}}
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ec2.amazonaws.com"
+        }
+      }
     },
     {
       "Sid": "EvidenceBucket",
       "Effect": "Allow",
-      "Action": ["s3:*"],
+      "Action": [
+        "s3:*"
+      ],
       "Resource": [
         "arn:aws:s3:::BUCKET",
         "arn:aws:s3:::BUCKET/*"
@@ -103,9 +120,15 @@
     {
       "Sid": "CreateTheEvidenceBucketOnce",
       "Effect": "Allow",
-      "Action": ["s3:CreateBucket", "s3:ListAllMyBuckets"],
+      "Action": [
+        "s3:CreateBucket"
+      ],
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "REGION"}}
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "REGION"
+        }
+      }
     }
   ]
 }

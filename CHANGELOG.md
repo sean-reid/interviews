@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/sean-reid/interviews/compare/v0.4.0...v0.5.0) (2026-08-01)
+
+
+### Features
+
+* setup aws and start --remote ([#11](https://github.com/sean-reid/interviews/issues/11)) ([d3e8a11](https://github.com/sean-reid/interviews/commit/d3e8a1133042afc9f3d39c708656a5f27faf761e))
+
+
+### Bug Fixes
+
+* **infra:** drop an EC2 action that does not exist ([#7](https://github.com/sean-reid/interviews/issues/7)) ([7a0c2b6](https://github.com/sean-reid/interviews/commit/7a0c2b6d56df1d43f37b2903e114560cda5bd655))
+
 ## [0.4.0](https://github.com/sean-reid/interviews/compare/v0.3.0...v0.4.0) (2026-08-01)
 
 

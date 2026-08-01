@@ -114,6 +114,9 @@ func (r *Registry) loadType(fsys fs.FS, t taxonomy.Type) error {
 				for _, i := range scenarioIssues {
 					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
 				}
+				if i, ok := checkVariantSpread(problem); !ok {
+					r.findings = append(r.findings, Finding{Dir: dir, Issue: i})
+				}
 			case taxonomy.SysDesign:
 				_, reviewIssues := sysdesign.Load(problem)
 				for _, i := range reviewIssues {

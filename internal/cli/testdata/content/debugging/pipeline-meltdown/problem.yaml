@@ -19,5 +19,9 @@ params:
   team_name:
     type: string
     default: umbrella
+  port:
+    type: int
+    min: 8000
+    max: 8999
 visibility:
   candidate: [candidate/**]

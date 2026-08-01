@@ -8,23 +8,31 @@ delivered as clean candidate bundles, and system design exercises reviewed live.
 Problems are deliberately too hard to finish; candidates may use any resource,
 including AI tools, and the evaluation watches how they work, not how far they get.
 
+## This repository holds the platform, not the problems
+
+The tool, the spec, and the infrastructure are here. Problems live in a separate
+private repository, because a candidate who can read a fault script has read the
+answer key. Point the tool at your own:
+
+```sh
+interviews config set content <path to your problems>/content
+```
+
+There is nothing employer-specific in here. Writing your own problems means
+following the spec and the schema this tool validates; nothing about the platform
+assumes a particular stack, since a problem declares its own environment.
+
 ## Install
 
 Requires Go 1.24+.
 
 ```sh
-go install ./cmd/interviews
+go install github.com/sean-reid/interviews/cmd/interviews@latest
 ```
 
 Debugging interviews shell out to docker, kind, kubectl, tmux, ttyd, and
 asciinema; provisioning a host also needs terraform and the aws cli. Run
 `interviews doctor` to see what is missing and how to install it.
-
-Tell it where the problems are, once per machine:
-
-```sh
-interviews config set content <path>/content
-```
 
 Commands resolve the content root from `--content`, then that setting, then
 `$INTERVIEWS_CONTENT`, then `./content`. When the content tree is a git
@@ -155,8 +163,8 @@ interviews bundle <problem> --seed <id> -o design-dir    # or -o design.tar.gz
 
 ## Content
 
-Problems live under `content/<type>/<problem>/`, each with a `problem.yaml` manifest,
-a `candidate/` tree, and an `interviewer/` tree. Visibility is fail-closed: a file
+Problems live in their own repository, under `content/<type>/<problem>/`, each with a
+`problem.yaml` manifest, a `candidate/` tree, and an `interviewer/` tree. Visibility is fail-closed: a file
 reaches candidates only if the manifest's `visibility` globs name it, and nothing
 under `interviewer/` or `faults/` can be exposed at all. Symlinks never count as
 candidate-visible, since a link at a candidate path can point at an answer key.

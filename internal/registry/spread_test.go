@@ -1,52 +1,47 @@
 package registry
 
 import (
-	"encoding/json"
-	"os"
-	"strconv"
+	"strings"
 	"testing"
 
-	"github.com/sean-reid/interviews/internal/taxonomy"
-	"github.com/sean-reid/interviews/internal/variant"
+	"github.com/sean-reid/interviews/internal/content"
 )
 
-// A leaked write-up ages fast only if the next candidate draws a different
-// environment, so every shipped debugging scenario has to vary in more than
-// its fault pack: pack alone once left one of them with two variants and the
-// other with four. Counted by resolving real seeds against the shipped
-// content, because the number that matters is the one candidates draw.
-func TestShippedDebuggingVariantsStayDistinct(t *testing.T) {
-	reg, err := Load(os.DirFS("../../content"))
-	if err != nil {
-		t.Fatalf("loading the content root: %v", err)
+// A problem that varies in nothing but its fault pack is one leaked
+// write-up away from useless, so validation counts the environments real
+// seeds actually draw.
+func TestVariantSpread(t *testing.T) {
+	packOnly := map[string]content.ParamSpec{
+		"fault_pack": {Type: content.Choice, Of: []string{"pack-a", "pack-b"}},
+	}
+	if _, ok := checkVariantSpread(&content.Problem{
+		Manifest: content.Manifest{ID: "narrow", Params: packOnly},
+	}); ok {
+		t.Error("a problem with two possible environments passed the spread check")
 	}
 
-	const seeds = 500
-	checked := 0
-	for _, e := range reg.Problems() {
-		if e.Type != taxonomy.Debugging || e.Problem == nil {
-			continue
-		}
-		id := e.Problem.Manifest.ID
-		seen := map[string]bool{}
-		for i := range seeds {
-			r, err := variant.Resolve(id, e.Problem.Manifest.Params, "seed-"+strconv.Itoa(i), nil)
-			if err != nil {
-				t.Fatalf("%s: resolving seed %d: %v", id, i, err)
-			}
-			key, err := json.Marshal(r.Params)
-			if err != nil {
-				t.Fatalf("%s: %v", id, err)
-			}
-			seen[string(key)] = true
-		}
-		if len(seen) < seeds*9/10 {
-			t.Errorf("%s: %d distinct variants over %d seeds, want at least %d",
-				id, len(seen), seeds, seeds*9/10)
-		}
-		checked++
+	wide := map[string]content.ParamSpec{
+		"fault_pack": {Type: content.Choice, Of: []string{"pack-a", "pack-b"}},
+		"team":       {Type: content.Choice, Of: []string{"a", "b", "c", "d", "e", "f"}},
+		"scale":      {Type: content.Int, Min: ptr(1), Max: ptr(40)},
+		"port":       {Type: content.Int, Min: ptr(8000), Max: ptr(8999)},
 	}
-	if checked == 0 {
-		t.Fatal("no debugging problems found; the content root moved")
+	if issue, ok := checkVariantSpread(&content.Problem{
+		Manifest: content.Manifest{ID: "wide", Params: wide},
+	}); !ok {
+		t.Errorf("a problem with a wide parameter space failed: %s", issue.Msg)
+	}
+
+	// The message has to say what to do about it, since the author reading it
+	// has to decide which parameters to add.
+	issue, _ := checkVariantSpread(&content.Problem{
+		Manifest: content.Manifest{ID: "narrow", Params: packOnly},
+	})
+	for _, want := range []string{"distinct variants", "vary more than the fault pack"} {
+		if !strings.Contains(issue.Msg, want) {
+			t.Errorf("message missing %q: %s", want, issue.Msg)
+		}
 	}
 }
+
+func ptr(i int) *int { return &i }

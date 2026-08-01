@@ -12,10 +12,24 @@ func manifest(id, typ, extra string) string {
 	params := ""
 	if typ == "debugging" {
 		timeSpec = "session_minutes: 60"
+		// Wide enough to pass the variant spread rule, which every real
+		// debugging problem has to pass: a fixture with one environment would
+		// fail validation for a reason unrelated to what each test checks.
 		params = `params:
   fault_pack:
     type: choice
     of: [pack-a]
+  team_name:
+    type: choice
+    of: [alpha, bravo, charlie, delta, echo, foxtrot]
+  replicas:
+    type: int
+    min: 1
+    max: 40
+  port:
+    type: int
+    min: 8000
+    max: 8999
 `
 	}
 	return fmt.Sprintf(`schema: 1

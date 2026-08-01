@@ -205,8 +205,13 @@ func TestGradeSheetUsesTheRecordedOverrides(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "| Variant | fault_pack=pack-a, scale=4, team_name=umbrella |") {
-		t.Errorf("sheet variant row ignores the recorded overrides:\n%s", stdout)
+	// Checked pair by pair rather than as a whole row: the row also carries
+	// seed-derived parameters, and pinning their values here would make this
+	// test about variant resolution instead of about the recorded overrides.
+	for _, want := range []string{"fault_pack=pack-a", "scale=4", "team_name=umbrella"} {
+		if !strings.Contains(variantRow(t, stdout), want) {
+			t.Errorf("variant row ignores the recorded override %s:\n%s", want, variantRow(t, stdout))
+		}
 	}
 
 	// An explicit --set is the interviewer overruling the record.
@@ -215,9 +220,22 @@ func TestGradeSheetUsesTheRecordedOverrides(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "| Variant | fault_pack=pack-b, scale=4, team_name=umbrella |") {
-		t.Errorf("--set did not win over the recorded overrides:\n%s", stdout)
+	if !strings.Contains(variantRow(t, stdout), "fault_pack=pack-b") {
+		t.Errorf("--set did not win over the recorded overrides:\n%s", variantRow(t, stdout))
 	}
+}
+
+// variantRow pulls the sheet's Variant line out, so an assertion about the
+// parameters does not have to quote the whole sheet.
+func variantRow(t *testing.T, sheet string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(sheet, "\n") {
+		if strings.HasPrefix(line, "| Variant |") {
+			return line
+		}
+	}
+	t.Fatal("sheet has no Variant row")
+	return ""
 }
 
 // Content moves on; a workdir recording a parameter the problem no longer

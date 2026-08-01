@@ -24,7 +24,7 @@ aws s3 cp interviews.tar.gz s3://my-interview-evidence/tarballs/interviews.tar.g
 cd infra/aws/interview
 terraform apply \
   -var region=eu-west-1 \
-  -var problem=relay \
+  -var problem=<problem> \
   -var seed=calm-bison-0731 \
   -var evidence_bucket=my-interview-evidence \
   -var repo_tarball_s3_uri=s3://my-interview-evidence/tarballs/interviews.tar.gz
@@ -51,7 +51,7 @@ a checkout of this repository, once per hint, keeping the same workdir for
 the whole session:
 
 ```sh
-interviews grade hint relay "asked what the health endpoint returns" \
+interviews grade hint <problem> "asked what the health endpoint returns" \
   --seed calm-bison-0731 --minute 9 --workdir ~/interviews/calm-bison-0731
 ```
 
@@ -86,7 +86,7 @@ kept during the session:
 ```sh
 aws s3 cp "$(terraform output -raw evidence_path)evidence.tar.gz" .
 mkdir evidence && tar xzf evidence.tar.gz -C evidence
-interviews grade sheet relay --seed calm-bison-0731 \
+interviews grade sheet <problem> --seed calm-bison-0731 \
   --workdir evidence --hints ~/interviews/calm-bison-0731 -o sheet.md
 ```
 

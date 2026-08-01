@@ -36,8 +36,7 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews start <problem-id> [--level senior] [--seed id] [--no-break]")
-		return 2
+		return usageErr("start", stderr)
 	}
 	problemID := pos[0]
 
@@ -108,7 +107,12 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "\nlog hints with: interviews hint \"what you said\"\nend with:      interviews end\n")
+	// The timeline is a foreground sampler, so it cannot be part of this
+	// command, and nothing else says that skipping it leaves the timeline in
+	// the evidence empty.
+	fmt.Fprintf(stdout, "\nlog hints with:  interviews hint \"what you said\"\n"+
+		"fault timeline:  interviews session timeline %s --for 70m (own window; empty without it)\n"+
+		"end with:        interviews end\n", problemID)
 	return 0
 }
 
@@ -123,8 +127,7 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) > 1 {
-		fmt.Fprintln(stderr, "usage: interviews end [<seed>] [--purge]")
-		return 2
+		return usageErr("end", stderr)
 	}
 	seed := *seedFlag
 	if len(pos) == 1 {
@@ -179,8 +182,7 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
-		fmt.Fprintln(stderr, `usage: interviews hint "what you told them" [--minute n] [--seed id]`)
-		return 2
+		return usageErr("hint", stderr)
 	}
 	rec, err := currentOr(*seedFlag, stderr)
 	if err != nil {

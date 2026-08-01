@@ -10,10 +10,8 @@ import (
 )
 
 func cmdSession(args []string, stdout, stderr io.Writer) int {
-	usage := "usage: interviews session start|stop|evidence|timeline|kubeconfig <problem-id> --seed <id> [flags]"
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("session", stderr)
 	}
 	switch args[0] {
 	case "start":
@@ -27,8 +25,7 @@ func cmdSession(args []string, stdout, stderr io.Writer) int {
 	case "kubeconfig":
 		return sessionKubeconfig(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("session", stderr)
 	}
 }
 
@@ -60,8 +57,7 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews session start <problem-id> --seed <id> [--base-url URL]")
-		return 2
+		return usageErr("session start", stderr)
 	}
 	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
 	if err != nil {
@@ -85,8 +81,7 @@ func sessionStop(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews session stop <problem-id> --seed <id>")
-		return 2
+		return usageErr("session stop", stderr)
 	}
 	m, err := managerFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
 	if err != nil {
@@ -113,8 +108,7 @@ func sessionEvidence(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews session evidence <problem-id> --seed <id> [--final] [--s3 s3://bucket/prefix]")
-		return 2
+		return usageErr("session evidence", stderr)
 	}
 	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
 	if err != nil {
@@ -142,8 +136,7 @@ func sessionTimeline(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 || *once == (*forDur > 0) {
-		fmt.Fprintln(stderr, "usage: interviews session timeline <problem-id> --seed <id> --interval 30s --once|--for 70m")
-		return 2
+		return usageErr("session timeline", stderr)
 	}
 	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
 	if err != nil {
@@ -175,8 +168,7 @@ func sessionKubeconfig(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews session kubeconfig <problem-id> --seed <id> [--out PATH]")
-		return 2
+		return usageErr("session kubeconfig", stderr)
 	}
 	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
 	if err != nil {

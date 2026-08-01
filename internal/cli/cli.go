@@ -24,6 +24,7 @@ Running an interview:
   grade      sheet | score | hint: rubric-first grading artifacts
   bundle     write a take-home or system design bundle (dir or .tar.gz)
 
+
 Authoring and CI:
   describe   show one problem, optionally with a resolved variant
   validate   check the content tree; exits 1 on any error
@@ -33,7 +34,11 @@ Authoring and CI:
   break      inject the variant's fault pack
   fault      status | fix injected faults (interviewer only)
   session    start | stop | evidence | timeline | kubeconfig by hand
+
+Everywhere:
+  doctor     check this machine has what the modes you use need
   version    print the version
+  help       this menu, or help <command> for one command
 
 A live interview is start, hint, end. The commands under authoring are the
 pieces those are built from, for writing content and for CI.
@@ -44,26 +49,35 @@ selects one session; without it, commands use the current one.
 
 type command func(args []string, stdout, stderr io.Writer) int
 
-var commands = map[string]command{
-	"start":    cmdStart,
-	"end":      cmdEnd,
-	"hint":     cmdHint,
-	"sessions": cmdSessions,
-	"list":     cmdList,
-	"describe": cmdDescribe,
-	"validate": cmdValidate,
-	"env":      cmdEnv,
-	"break":    cmdBreak,
-	"fault":    cmdFault,
-	"prove":    cmdProve,
-	"session":  cmdSession,
-	"grade":    cmdGrade,
-	"bundle":   cmdBundle,
-	"redteam":  cmdRedteam,
-	"version":  cmdVersion,
-	"help":     cmdHelp,
-	"-h":       cmdHelp,
-	"--help":   cmdHelp,
+// commands is populated in init: cmdHelp reads it to answer help <command>,
+// which a composite literal cannot express.
+var commands map[string]command
+
+func init() {
+	commands = map[string]command{
+		"doctor":    cmdDoctor,
+		"start":     cmdStart,
+		"end":       cmdEnd,
+		"hint":      cmdHint,
+		"sessions":  cmdSessions,
+		"list":      cmdList,
+		"describe":  cmdDescribe,
+		"validate":  cmdValidate,
+		"env":       cmdEnv,
+		"break":     cmdBreak,
+		"fault":     cmdFault,
+		"prove":     cmdProve,
+		"session":   cmdSession,
+		"grade":     cmdGrade,
+		"bundle":    cmdBundle,
+		"redteam":   cmdRedteam,
+		"version":   cmdVersion,
+		"--version": cmdVersion,
+		"-v":        cmdVersion,
+		"help":      cmdHelp,
+		"-h":        cmdHelp,
+		"--help":    cmdHelp,
+	}
 }
 
 // Run executes the command line and returns the process exit code.
@@ -85,7 +99,23 @@ func cmdVersion(_ []string, stdout, _ io.Writer) int {
 	return 0
 }
 
-func cmdHelp(_ []string, stdout, _ io.Writer) int {
-	fmt.Fprint(stdout, usage)
+// cmdHelp prints the top-level menu, or one command's own help. It used to
+// ignore its argument, so the obvious way to ask about a command answered
+// with the menu you were already looking at.
+func cmdHelp(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stdout, usage)
+		return 0
+	}
+	name := args[0]
+	cmd, ok := commands[name]
+	if !ok || name == "help" || name == "-h" || name == "--help" {
+		fmt.Fprintf(stderr, "interviews help: no command %q\n\n", name)
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	// Ask the command itself, so the flag list is the real one rather than a
+	// copy of it that goes stale. Its help goes to stdout: it was asked for.
+	cmd([]string{"--help"}, stdout, stdout)
 	return 0
 }

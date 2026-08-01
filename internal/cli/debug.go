@@ -106,19 +106,16 @@ func reportTeardown(stdout io.Writer, e *debug.Engine, kept []string, purged boo
 }
 
 func cmdEnv(args []string, stdout, stderr io.Writer) int {
-	usage := "usage: interviews env up|verify|down <problem-id> --seed <id> [--set k=v] [--purge]"
 	contentRoot, seed, workdir, sets, purge, pos, ok := envFlags("env", args, stderr)
 	if !ok {
 		return 2
 	}
 	if len(pos) != 2 {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("env", stderr)
 	}
 	verb, problemID := pos[0], pos[1]
 	if verb != "up" && verb != "verify" && verb != "down" {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("env", stderr)
 	}
 	e, err := engineFor(contentRoot, problemID, seed, workdir, sets, stdout, stderr)
 	if err != nil {
@@ -152,8 +149,7 @@ func cmdBreak(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews break <problem-id> --seed <id>")
-		return 2
+		return usageErr("break", stderr)
 	}
 	e, err := engineFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
 	if err != nil {
@@ -169,19 +165,16 @@ func cmdBreak(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdFault(args []string, stdout, stderr io.Writer) int {
-	usage := "usage: interviews fault status|fix <problem-id> [fault-id] --seed <id>"
 	contentRoot, seed, workdir, sets, pos, ok := debugFlags("fault", args, stderr)
 	if !ok {
 		return 2
 	}
 	if len(pos) < 2 {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("fault", stderr)
 	}
 	verb, problemID := pos[0], pos[1]
 	if verb != "status" && verb != "fix" {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("fault", stderr)
 	}
 	e, err := engineFor(contentRoot, problemID, seed, workdir, sets, stdout, stderr)
 	if err != nil {
@@ -245,8 +238,7 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews prove <problem-id> [--pack name] [--set k=v] [--keep]")
-		return 2
+		return usageErr("prove", stderr)
 	}
 	problemID := pos[0]
 	for _, s := range sets {

@@ -20,10 +20,8 @@ import (
 )
 
 func cmdGrade(args []string, stdout, stderr io.Writer) int {
-	usage := "usage: interviews grade sheet|score|hint <problem-id> --seed <id> [flags]"
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("grade", stderr)
 	}
 	switch args[0] {
 	case "sheet":
@@ -33,8 +31,7 @@ func cmdGrade(args []string, stdout, stderr io.Writer) int {
 	case "hint":
 		return gradeHint(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("grade", stderr)
 	}
 }
 
@@ -99,9 +96,7 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr,
-			"usage: interviews grade sheet <problem-id> --seed <id> [-o file] [--rubric file] [--hints dir]")
-		return 2
+		return usageErr("grade sheet", stderr)
 	}
 
 	entry, v, wd, resolvedSeed, err := gradeTarget(*contentRoot, pos[0], *seed, *workdir, sets, stderr)
@@ -185,8 +180,7 @@ func gradeScore(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews grade score <problem-id> --seed <id>")
-		return 2
+		return usageErr("grade score", stderr)
 	}
 	e, err := engineFor(contentRoot, pos[0], seed, workdir, sets, stdout, stderr)
 	if err != nil {
@@ -219,8 +213,7 @@ func gradeHint(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(pos) != 2 || *minute == "" {
-		fmt.Fprintln(stderr, `usage: interviews grade hint <problem-id> "the hint text" --seed <id> --minute <n>`)
-		return 2
+		return usageErr("grade hint", stderr)
 	}
 	min, err := strconv.Atoi(*minute)
 	if err != nil || min < 0 {

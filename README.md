@@ -16,6 +16,10 @@ Requires Go 1.24+.
 go install ./cmd/interviews
 ```
 
+Debugging interviews shell out to docker, kind, kubectl, tmux, ttyd, and
+asciinema; provisioning a host also needs terraform and the aws cli. Run
+`interviews doctor` to see what is missing and how to install it.
+
 ## Browsing content
 
 ```sh
@@ -50,6 +54,10 @@ interviews hint "asked what the events say" # minute measured from the start
 interviews end                              # stop, keep the evidence, tear down
 ```
 
+The fault timeline is a foreground sampler, so it is the one piece `start` cannot
+do for you. Run `interviews session timeline <problem> --for 70m` in its own
+window if you want it; the timeline in the evidence is empty without it.
+
 `interviews sessions` lists what is running and what ended, with the state read
 from each environment rather than from the record. `interviews sessions show`
 prints one session in full, for when the URLs have been lost.
@@ -80,7 +88,7 @@ pieces are also separate commands:
 
 ```sh
 interviews session start <problem> --seed <id>   # prints candidate and observer URLs
-interviews session timeline <problem> --seed <id> --for 70m   # own window: it samples until it ends
+interviews session timeline <problem> --seed <id> --for 70m   # own window
 interviews session evidence <problem> --seed <id> --final
 interviews session stop <problem> --seed <id>
 ```

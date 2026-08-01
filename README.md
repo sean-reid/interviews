@@ -86,8 +86,11 @@ of an interview by design: the route is expected to fail while the faults are in
 and the timeline records when it came back.
 
 `interviews sessions` lists what is running and what ended, with the state read
-from each environment rather than from the record. `interviews sessions show`
-prints one session in full, for when the URLs have been lost.
+from each environment rather than from the record, ordered by who each session
+is blocked on: a host past its ttl first, then submissions to review, then
+overdue ones. `--waiting` drops everything that is not yours to move.
+`interviews sessions show` prints one session in full, for when the URLs have
+been lost.
 
 Underneath, each step is a command of its own, which is what content authoring
 and CI use:

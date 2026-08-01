@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/sean-reid/interviews/compare/v0.3.0...v0.4.0) (2026-08-01)
+
+
+### Features
+
+* generate and track a take-home like a session ([#3](https://github.com/sean-reid/interviews/issues/3)) ([952be73](https://github.com/sean-reid/interviews/commit/952be734a2a6873f67ca6350a4c37bdd5ae47bcd))
+
 ## [0.3.0](https://github.com/sean-reid/interviews/compare/v0.2.0...v0.3.0) (2026-08-01)
 
 

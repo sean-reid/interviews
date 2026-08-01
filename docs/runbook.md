@@ -3,6 +3,58 @@
 One disposable EC2 host per interview: broken environment, shared recorded
 terminal, TTL self-destruct. Evidence outlives the host in S3.
 
+## The AWS identity terraform runs as
+
+Make a dedicated IAM user for this rather than using your own. Everything the
+modules create is named `iv-<seed>-`, which is what lets the policy stay scoped:
+the user can create roles and instance profiles under that prefix and nothing
+else, and it can only touch the one evidence bucket.
+
+[`infra/aws/terraform-policy.json`](../infra/aws/terraform-policy.json) is the
+policy. Replace the three placeholders first:
+
+- `ACCOUNT_ID` with your twelve digit account id
+- `REGION` with the region you provision in, for example `eu-west-1`
+- `BUCKET` with the evidence bucket name you are about to create
+
+Then:
+
+```sh
+account=$(aws sts get-caller-identity --query Account --output text)
+sed -e "s/ACCOUNT_ID/$account/g" -e "s/REGION/eu-west-1/g" -e "s/BUCKET/my-interview-evidence/g"   infra/aws/terraform-policy.json >/tmp/iv-terraform-policy.json
+
+aws iam create-user --user-name interviews-terraform
+aws iam put-user-policy --user-name interviews-terraform   --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
+aws iam create-access-key --user-name interviews-terraform
+```
+
+Put the key in a named profile and point terraform at it with
+`AWS_PROFILE=interviews`, so it is never your default identity:
+
+```sh
+aws configure --profile interviews        # paste the key and the region
+export AWS_PROFILE=interviews
+aws sts get-caller-identity              # says interviews-terraform
+```
+
+What the policy allows, and why each part is there:
+
+| Statement | Why |
+|---|---|
+| `sts:GetCallerIdentity` | the provider calls it on every plan |
+| network and image reads | the modules look up the default VPC, its subnets, and the Ubuntu AMI |
+| session host lifecycle | security group, elastic IP, instance, and their tags |
+| role and profile under `iv-*` | the host needs an instance role, and only under that prefix |
+| `iam:PassRole` to ec2 only | attaching that role to the instance, and nothing else |
+| the evidence bucket | create it once, then write evidence and read the tarball |
+
+`Describe*` calls cannot be scoped to a resource, so those are `"Resource": "*"`
+with a region condition. Everything that can be scoped is.
+
+The instance gets its own much smaller role, written by the module: it may put
+objects under `s3://<bucket>/<seed>/` and get the content tarball, nothing more.
+A candidate on the host inherits that and no more.
+
 ## One-time setup
 
 Create the evidence bucket, then build and upload the platform tarball

@@ -136,7 +136,9 @@ the tmux server on a second account that cannot read the content tree, so the
 candidate's terminal has no route to the answer keys.
 
 See [the runbook](docs/runbook.md) for provisioning a disposable host on any AWS
-account, and for the flow around a live session.
+account, and for the flow around a live session. It opens with the scoped IAM
+policy terraform needs, since the answer to "what permissions does this want" is
+otherwise a guess.
 
 ### Take-home
 

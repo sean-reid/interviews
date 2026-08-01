@@ -1,0 +1,19 @@
+schema: 1
+id: toy-fanout
+type: sysdesign
+title: Fan out a notification nobody may miss twice
+summary: A small design exercise, shipped as an example of the system design shape.
+disciplines: [systems]
+levels: [mid, senior]
+time:
+  soft_budget_hours: 2
+params:
+  subscriber_count:
+    type: int
+    min: 10000
+    max: 990000
+  fanout_sla_seconds:
+    type: choice
+    of: [5, 15, 30, 60, 120, 300]
+visibility:
+  candidate: [candidate/**]

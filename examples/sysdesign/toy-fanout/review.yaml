@@ -1,0 +1,20 @@
+tensions:
+  - id: exactly-once
+    summary: Every subscriber gets it, none gets it twice, over a network that drops acknowledgements.
+    hides_in: The two must-nots in the brief, which cannot both hold end to end.
+    good_move: Names at-least-once plus idempotent receipt, and says who deduplicates.
+  - id: sla-versus-slow-subscribers
+    summary: A fixed fanout deadline against subscribers that are arbitrarily slow.
+    hides_in: The SLA and the sentence about slow endpoints.
+    good_move: Separates delivery from acknowledgement, and defines finished in terms it can measure.
+curveballs:
+  - id: subscriber-returns-after-a-week
+    prompt: One subscriber was down for a week and comes back. What does it receive?
+    probes: How long is retained, and who decides what is still worth delivering?
+    good_move: Has already bounded retention and says what is dropped.
+    red_flag: Promises full replay with no ceiling on storage.
+  - id: sla-halves
+    prompt: The deadline just halved. What breaks first?
+    probes: Which part of the design was sized by the old number?
+    good_move: Points at the specific bottleneck and the tradeoff to make.
+    red_flag: Says it scales horizontally and stops there.

@@ -1,0 +1,23 @@
+schema: 1
+id: toy-cache
+type: debugging
+title: The toy cache does not answer
+summary: A two-fault kubernetes scenario, small enough to prove in a minute.
+disciplines: [infra]
+levels: [entry, mid]
+flavor: kubernetes
+time:
+  session_minutes: 30
+params:
+  fault_pack:
+    type: choice
+    of: [pack-a, pack-b]
+  app_name:
+    type: choice
+    of: [amber, cedar, delta, ember, harbor, willow]
+  build_id:
+    type: int
+    min: 1000
+    max: 9999
+visibility:
+  candidate: [candidate/**]

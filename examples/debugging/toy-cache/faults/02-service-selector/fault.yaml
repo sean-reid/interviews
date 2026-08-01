@@ -1,0 +1,4 @@
+id: 02-service-selector
+title: Cache service selects a label nothing has
+tier: easy
+packs: [pack-b]

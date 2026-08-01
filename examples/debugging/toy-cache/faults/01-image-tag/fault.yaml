@@ -1,0 +1,4 @@
+id: 01-image-tag
+title: Cache image tag is mistyped
+tier: easy
+packs: [pack-a, pack-b]

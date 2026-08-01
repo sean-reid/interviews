@@ -18,9 +18,11 @@ answer key. Point the tool at your own:
 interviews config set content <path to your problems>/content
 ```
 
-There is nothing employer-specific in here. Writing your own problems means
-following the spec and the schema this tool validates; nothing about the platform
-assumes a particular stack, since a problem declares its own environment.
+There is nothing employer-specific in here. [SPEC.md](SPEC.md) is everything the
+tool needs to run a problem it has never seen: the manifest schema, the
+visibility model, the variant rules, and the fault contract. Nothing about the
+platform assumes a particular stack, since a problem declares its own
+environment.
 
 ## Install
 

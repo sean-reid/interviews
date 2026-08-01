@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/sean-reid/interviews/compare/v0.2.0...v0.3.0) (2026-08-01)
+
+
+### Features
+
+* add doctor, and make every command describe itself ([#66](https://github.com/sean-reid/interviews/issues/66)) ([59aea37](https://github.com/sean-reid/interviews/commit/59aea3790f911790ef0e0db987f6fc921573d1fc))
+* configure where the problems are, and warn when they are stale ([#71](https://github.com/sean-reid/interviews/issues/71)) ([9688437](https://github.com/sean-reid/interviews/commit/9688437eb13bccff263f473da8be3c89bbd25cc2))
+* one command to run an interview, and a registry that remembers it ([#64](https://github.com/sean-reid/interviews/issues/64)) ([aac48c5](https://github.com/sean-reid/interviews/commit/aac48c57a4ebed2daaf708a6f3c71f28f401b0e4))
+* **session:** forward a compose app onto the fixed port ([#70](https://github.com/sean-reid/interviews/issues/70)) ([ed7e2bc](https://github.com/sean-reid/interviews/commit/ed7e2bcc1d5da80d00416c6d53ac91de29755eb7))
+* **session:** give the candidate a URL for the app itself ([#67](https://github.com/sean-reid/interviews/issues/67)) ([1341886](https://github.com/sean-reid/interviews/commit/13418863bfa2a04a847480695cd5d4d06a2374a0))
+
+
+### Bug Fixes
+
+* keep credentials out of the sheet and the bundle, and grade against one level ([#65](https://github.com/sean-reid/interviews/issues/65)) ([98b8ea7](https://github.com/sean-reid/interviews/commit/98b8ea75385df1bbd70f1a0a4e9f8a01c629052c))
+* stop losing the interview evidence ([#61](https://github.com/sean-reid/interviews/issues/61)) ([da7d529](https://github.com/sean-reid/interviews/commit/da7d52994409e47398799315224b5b34d0eae57c))
+
 ## [0.2.0](https://github.com/sean-reid/interviews/compare/v0.1.0...v0.2.0) (2026-07-31)
 
 

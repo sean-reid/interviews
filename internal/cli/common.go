@@ -48,7 +48,7 @@ func newBareFlagSet(name string, stderr io.Writer) *flag.FlagSet {
 // --help, answer help <command>, and are what a usage error prints, so
 // there is one wording per command rather than three.
 var synopses = map[string]string{
-	"start":    `interviews start <problem-id> [--level senior] [--seed id] [--no-break] [--base-url URL]`,
+	"start":    `interviews start <problem-id> [--level senior] [--seed id] [--no-break] [--remote [--ttl 120] [--instance-type t]]`,
 	"hint":     `interviews hint "what you told them" [--minute n] [--seed id]`,
 	"end":      `interviews end [<seed>] [--purge]`,
 	"sessions": `interviews sessions [--all] | interviews sessions show [<seed>]`,
@@ -67,6 +67,7 @@ var synopses = map[string]string{
 	"sent":     `interviews sent [--seed id]`,
 	"returned": `interviews returned <path to the submission> [--seed id]`,
 	"reviewed": `interviews reviewed [--seed id]`,
+	"setup":    `interviews setup aws --region <region> --bucket <name> [--profile p] [--skip-bucket]`,
 	"doctor":   `interviews doctor`,
 	"version":  `interviews version`,
 
@@ -80,12 +81,14 @@ var synopses = map[string]string{
 	"session timeline":   `interviews session timeline <problem-id> [--seed id] --interval 30s --once|--for 70m`,
 	"session kubeconfig": `interviews session kubeconfig <problem-id> [--seed id] [--out PATH]`,
 	"session proxy":      `interviews session proxy --to <port> [--from 8003]`,
+	"setup aws":          `interviews setup aws --region <region> --bucket <name> [--profile p] [--skip-bucket]`,
 	"redteam ledger":     `interviews redteam ledger [--problem id] [--json]`,
 }
 
 // verbs a parent command dispatches on, so its help lists them instead of
 // only appearing when the invocation is already wrong.
 var verbs = map[string][]string{
+	"setup":    {"aws: create the evidence bucket and upload the platform and content bundle"},
 	"config":   {"set content <path>: where the problems are checked out", "unset content: fall back to $INTERVIEWS_CONTENT or ./content"},
 	"env":      {"up: build the environment and wait for verify", "verify: run the health check once", "down: tear it down, keeping the session evidence"},
 	"fault":    {"status: check every injected fault", "fix: apply the answer key for one fault or all of them"},

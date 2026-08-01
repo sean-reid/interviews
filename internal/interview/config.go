@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sean-reid/interviews/internal/fileio"
 )
@@ -19,9 +20,26 @@ const ContentEnv = "INTERVIEWS_CONTENT"
 const FallbackContentRoot = "./content"
 
 // Config is what this machine knows that no repository can: chiefly where
-// the problems are, since the platform and the content live apart.
+// the problems are, since the platform and the content live apart, and what
+// setup aws left behind so provisioning needs only a problem name.
 type Config struct {
-	ContentRoot string `json:"content_root,omitempty"`
+	ContentRoot string    `json:"content_root,omitempty"`
+	AWS         *AWSSetup `json:"aws,omitempty"`
+}
+
+// AWSSetup is what one machine needs to provision a host: written by setup
+// aws, read by start --remote, so neither has to be told twice.
+type AWSSetup struct {
+	Region string `json:"region"`
+	Bucket string `json:"bucket"`
+	// TarballURI is the platform and content bundle the host downloads.
+	TarballURI string `json:"tarball_uri"`
+	// Profile is the AWS named profile to use, empty for the default chain.
+	Profile string `json:"profile,omitempty"`
+	// ContentDigest is what was packed, so a stale tarball is detectable
+	// without downloading it again.
+	ContentDigest string    `json:"content_digest,omitempty"`
+	UploadedAt    time.Time `json:"uploaded_at,omitzero"`
 }
 
 func configPath() (string, error) {

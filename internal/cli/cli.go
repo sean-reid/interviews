@@ -41,6 +41,7 @@ Authoring and CI:
 
 Everywhere:
   config     where the problems are on this machine
+  setup      setup aws: evidence bucket and the bundle a host downloads
   doctor     check this machine has what the modes you use need
   version    print the version
   help       this menu, or help <command> for one command
@@ -62,6 +63,7 @@ var commands map[string]command
 func init() {
 	commands = map[string]command{
 		"config":    cmdConfig,
+		"setup":     cmdSetup,
 		"doctor":    cmdDoctor,
 		"start":     cmdStart,
 		"end":       cmdEnd,

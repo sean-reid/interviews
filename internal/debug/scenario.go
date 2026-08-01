@@ -114,7 +114,9 @@ func LoadScenario(p *content.Problem) (*Scenario, []content.Issue) {
 				addIssue(EnvManifest, "app.service: required on kind, to know what to forward to")
 			}
 		case "compose":
-			addIssue(EnvManifest, "app: kind only for now; a compose app publishes a port the variant chose, and the fronting proxy is configured before the variant is resolved")
+			if app.Service != "" {
+				addIssue(EnvManifest, "app.service: kind only; a compose app publishes app.port itself")
+			}
 		}
 	}
 

@@ -71,6 +71,7 @@ var synopses = map[string]string{
 	"session evidence":   `interviews session evidence <problem-id> [--seed id] [--final] [--s3 s3://bucket/prefix]`,
 	"session timeline":   `interviews session timeline <problem-id> [--seed id] --interval 30s --once|--for 70m`,
 	"session kubeconfig": `interviews session kubeconfig <problem-id> [--seed id] [--out PATH]`,
+	"session proxy":      `interviews session proxy --to <port> [--from 8003]`,
 	"redteam ledger":     `interviews redteam ledger [--problem id] [--json]`,
 }
 
@@ -80,7 +81,7 @@ var verbs = map[string][]string{
 	"env":      {"up: build the environment and wait for verify", "verify: run the health check once", "down: tear it down, keeping the session evidence"},
 	"fault":    {"status: check every injected fault", "fix: apply the answer key for one fault or all of them"},
 	"grade":    {"sheet: render the grading sheet", "score: fill the objective record from the live environment", "hint: log a hint against a session elsewhere"},
-	"session":  {"start: tmux, recorder, and both terminal endpoints", "stop: kill them and take the final evidence", "evidence: refresh the score and bundle the workdir", "timeline: sample fault state over the session", "kubeconfig: mint the candidate kubeconfig"},
+	"session":  {"start: tmux, recorder, and both terminal endpoints", "stop: kill them and take the final evidence", "evidence: refresh the score and bundle the workdir", "timeline: sample fault state over the session", "kubeconfig: mint the candidate kubeconfig", "proxy: forward a loopback port, which start runs for a compose app"},
 	"sessions": {"show: everything about one session, including the URLs"},
 	"redteam":  {"ledger: what past calibration runs found"},
 }

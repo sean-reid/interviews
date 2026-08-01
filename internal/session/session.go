@@ -390,13 +390,24 @@ func (m *Manager) appPlan() (*appRoute, error) {
 	}
 	route := &appRoute{path: spec.Path}
 	if m.Engine.ProviderName() != "kind" {
-		// Only kind for now: port-forward normalizes any service port onto
-		// one loopback port, which is what the fronting proxy and the printed
-		// URL both need. A compose app publishes a port the variant chose, and
-		// the host's Caddyfile is rendered before the variant is resolved.
-		// Validation rejects app: on a compose problem, so this is a scenario
-		// loaded past its own errors.
-		return nil, nil
+		// A compose app publishes whatever port its variant drew, so it needs
+		// forwarding onto the fixed one the fronting proxy names. kubectl
+		// cannot help here and there is no dependency to lean on, so this
+		// process does it: interviews session proxy.
+		target, err := strconv.Atoi(port)
+		if err != nil {
+			return nil, fmt.Errorf("app.port %q: %w", port, err)
+		}
+		if target == AppPort {
+			// Already on the port everything expects.
+			return route, nil
+		}
+		self, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+		route.command = fmt.Sprintf("exec %q session proxy --from %d --to %d", self, AppPort, target)
+		return route, nil
 	}
 	ns, err := m.Engine.KindNamespace()
 	if err != nil {

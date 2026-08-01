@@ -24,6 +24,8 @@ func cmdSession(args []string, stdout, stderr io.Writer) int {
 		return sessionTimeline(args[1:], stdout, stderr)
 	case "kubeconfig":
 		return sessionKubeconfig(args[1:], stdout, stderr)
+	case "proxy":
+		return sessionProxy(args[1:], stdout, stderr)
 	default:
 		return usageErr("session", stderr)
 	}
@@ -188,5 +190,27 @@ func sessionKubeconfig(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, path)
+	return 0
+}
+
+// sessionProxy forwards one loopback port to another and stays running.
+// Session start launches it for a compose app, whose published port is
+// whatever its variant drew, so the candidate's URL can name a fixed one.
+// It is a session process like the rest: stop kills it.
+func sessionProxy(args []string, stdout, stderr io.Writer) int {
+	fs := newBareFlagSet("session proxy", stderr)
+	from := fs.Int("from", session.AppPort, "loopback port to listen on")
+	to := fs.Int("to", 0, "loopback port to forward to")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return 2
+	}
+	if len(pos) != 0 || *to == 0 {
+		return usageErr("session proxy", stderr)
+	}
+	if err := session.Proxy(context.Background(), *from, *to, stdout); err != nil {
+		fmt.Fprintf(stderr, "interviews session proxy: %v\n", err)
+		return 1
+	}
 	return 0
 }

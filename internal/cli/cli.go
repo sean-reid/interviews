@@ -33,7 +33,7 @@ Authoring and CI:
   env        up | verify | down a debugging environment by hand
   break      inject the variant's fault pack
   fault      status | fix injected faults (interviewer only)
-  session    start | stop | evidence | timeline | kubeconfig by hand
+  session    start | stop | evidence | timeline | kubeconfig | proxy by hand
 
 Everywhere:
   doctor     check this machine has what the modes you use need

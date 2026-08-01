@@ -1441,3 +1441,43 @@ func TestStopRemovesTheCandidateKubeconfig(t *testing.T) {
 		t.Errorf("credential survived the session: %v", err)
 	}
 }
+
+// A compose app publishes whatever port its variant drew, so it needs
+// forwarding onto the one port the fronting proxy and the printed URL name.
+// kubectl cannot reach a compose service and there is no dependency to lean
+// on, so this binary does it.
+func TestComposeAppGetsAProxy(t *testing.T) {
+	m, r, _ := testManager(t, func(f fstest.MapFS) {
+		f["problem.yaml"] = &fstest.MapFile{Data: []byte(
+			strings.Replace(problemYAML, "flavor: kubernetes", "flavor: compose-linux", 1))}
+		f["env.yaml"] = &fstest.MapFile{Data: []byte(
+			"provider: compose\ncompose:\n  file: env/docker-compose.yml\nverify: env/verify.sh\napp:\n  port: \"8480\"\n")}
+		f["env/docker-compose.yml"] = &fstest.MapFile{Data: []byte("services: {}\n")}
+	})
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	info, err := m.Start(context.Background(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AppPort != AppPort {
+		t.Errorf("app port = %d, want the fixed %d", info.AppPort, AppPort)
+	}
+	proxies := r.callsMatching("session proxy")
+	if len(proxies) != 1 {
+		t.Fatalf("proxy calls = %v, want one", proxies)
+	}
+	for _, want := range []string{
+		fmt.Sprintf("--from %d --to 8480", AppPort),
+		// exec, so the pid recorded is the proxy and stop kills it rather
+		// than a shell that outlives it.
+		"exec ",
+	} {
+		if !strings.Contains(proxies[0], want) {
+			t.Errorf("proxy command %q missing %q", proxies[0], want)
+		}
+	}
+	if got := r.callsMatching("port-forward"); len(got) != 0 {
+		t.Errorf("used kubectl for a compose app: %v", got)
+	}
+}

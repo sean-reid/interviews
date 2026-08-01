@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -246,6 +247,7 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	}
 	fs := newBareFlagSet("sessions", stderr)
 	all := fs.Bool("all", false, "include sessions that have ended")
+	waiting := fs.Bool("waiting", false, "only sessions that need something from you")
 	if _, err := parsePermuted(fs, args); err != nil {
 		return 2
 	}
@@ -257,21 +259,43 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	if !*all {
 		list = slices.DeleteFunc(list, func(s *interview.Session) bool { return !s.EndedAt.IsZero() })
 	}
-	if len(list) == 0 {
+	type row struct {
+		s     *interview.Session
+		state string
+		rank  int
+	}
+	rows := make([]row, 0, len(list))
+	for _, s := range list {
+		state, rank := sessionStatus(s)
+		if *waiting && rank > waitingCutoff {
+			continue
+		}
+		rows = append(rows, row{s, state, rank})
+	}
+	// Stable, so List's newest-first order breaks ties within a rank.
+	slices.SortStableFunc(rows, func(a, b row) int { return cmp.Compare(a.rank, b.rank) })
+	if len(rows) == 0 {
+		if *waiting {
+			fmt.Fprintln(stdout, "nothing is waiting on you")
+			return 0
+		}
 		fmt.Fprintln(stdout, "no sessions (interviews start <problem> begins one)")
 		return 0
 	}
 	w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
 	fmt.Fprintln(w, "SEED\tPROBLEM\tMODE\tAGE\tSTATE\tEVIDENCE")
-	for _, s := range list {
+	for _, r := range rows {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			s.Seed, s.Problem, s.Mode, age(time.Since(s.CreatedAt)), sessionState(s), evidenceNote(s))
+			r.s.Seed, r.s.Problem, r.s.Mode, age(time.Since(r.s.CreatedAt)), r.state, evidenceNote(r.s))
 	}
 	if err := w.Flush(); err != nil {
 		return 1
 	}
-	if !*all {
-		fmt.Fprintln(stdout, "\n--all includes sessions that have ended")
+	switch {
+	case *waiting:
+		fmt.Fprintln(stdout, "\nwaiting on you, most urgent first")
+	case !*all:
+		fmt.Fprintln(stdout, "\n--waiting narrows this to what needs you, --all includes sessions that have ended")
 	}
 	return 0
 }
@@ -365,45 +389,69 @@ func currentOr(seed string, stderr io.Writer) (*interview.Session, error) {
 // workdir and never trusted from the record, because a session whose state
 // file is gone is over whether or not anyone ran end. For the offline types
 // there is no substrate to read, so the recorded stage is the answer.
+// Listing order, by who a session is blocked on. Everything before
+// waitingCutoff needs the interviewer to do something; everything after it is
+// waiting on the candidate, on the clock, or on nobody.
+const (
+	rankPastTTL = iota
+	rankToReview
+	rankOverdue
+	rankNotSent
+	waitingCutoff
+	rankSent
+	rankLive
+	rankReviewed
+	rankClosed
+)
+
 func sessionState(s *interview.Session) string {
+	state, _ := sessionStatus(s)
+	return state
+}
+
+// sessionStatus reports what a session is doing and where it sorts. Both come
+// from one pass so a listing's order can never disagree with the text it shows.
+func sessionStatus(s *interview.Session) (string, int) {
 	if s.Mode == interview.Offline {
-		return offlineState(s)
+		return offlineStatus(s)
 	}
 	if !s.EndedAt.IsZero() {
-		return "ended"
+		return "ended", rankClosed
 	}
 	if s.Mode == interview.AWS {
 		// A provisioned host has no workdir here to read, and asking EC2 per
 		// row would make a listing wait on the network. What the record knows
 		// is whether the provision got as far as an address.
 		if s.Host == "" {
-			return "provisioning"
+			return "provisioning", rankLive
 		}
 		if s.TTLMinutes > 0 {
 			left := time.Until(s.CreatedAt.Add(time.Duration(s.TTLMinutes) * time.Minute))
 			if left <= 0 {
-				return "past its ttl"
+				// Sorted first because it is the only state that bills by the
+				// hour until someone runs end.
+				return "past its ttl", rankPastTTL
 			}
-			return "up, " + age(left) + " of ttl left"
+			return "up, " + age(left) + " of ttl left", rankLive
 		}
-		return "up"
+		return "up", rankLive
 	}
 	if s.Workdir == "" {
-		return "unknown"
+		return "unknown", rankClosed
 	}
 	st, err := debug.LoadState(s.Workdir)
 	switch {
 	case err != nil:
-		return "gone"
+		return "gone", rankClosed
 	case !st.Live():
-		return "torn down"
+		return "torn down", rankClosed
 	case len(st.Injected) == 0:
-		return "healthy"
+		return "healthy", rankLive
 	default:
 		// What the state file knows is which faults went in, not which are
 		// still there: reading that needs the check scripts, and a listing
 		// must not run seven of them per session.
-		return fmt.Sprintf("%d injected", len(st.Injected))
+		return fmt.Sprintf("%d injected", len(st.Injected)), rankLive
 	}
 }
 
@@ -477,23 +525,28 @@ func warnLevelUnsupported(contentRoot, problemID string, level taxonomy.Level, s
 // take-homes is being asked which ones need the interviewer, not which ones
 // exist.
 func offlineState(s *interview.Session) string {
+	state, _ := offlineStatus(s)
+	return state
+}
+
+func offlineStatus(s *interview.Session) (string, int) {
 	switch s.Stage {
 	case interview.Returned:
-		return "returned, to review"
+		return "returned, to review", rankToReview
 	case interview.Reviewed:
-		return "reviewed"
+		return "reviewed", rankReviewed
 	case interview.Sent:
 		if !s.DueAt.IsZero() && time.Now().After(s.DueAt) {
-			return "overdue by " + age(time.Since(s.DueAt))
+			return "overdue by " + age(time.Since(s.DueAt)), rankOverdue
 		}
 		if !s.DueAt.IsZero() {
-			return "sent, due in " + age(time.Until(s.DueAt))
+			return "sent, due in " + age(time.Until(s.DueAt)), rankSent
 		}
-		return "sent"
+		return "sent", rankSent
 	case interview.Created:
-		return "not sent"
+		return "not sent", rankNotSent
 	default:
-		return string(s.Stage)
+		return string(s.Stage), rankClosed
 	}
 }
 

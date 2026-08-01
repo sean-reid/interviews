@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -162,6 +163,72 @@ func TestSessionsListsOpenSessionsAndHidesEndedOnesByDefault(t *testing.T) {
 	_, stdout, _ = run(t, "sessions", "--all")
 	if !strings.Contains(stdout, "done-otter-0730") || !strings.Contains(stdout, "ended") {
 		t.Errorf("--all does not show the ended session:\n%s", stdout)
+	}
+}
+
+// A listing is read to find the next thing to do, so it is ordered by who
+// each session is blocked on rather than by when it started.
+func TestSessionsOrdersByWhoIsBlocked(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	now := time.Now()
+	record(t, &interview.Session{Seed: "waiting-tide-0801", Problem: "relay",
+		Mode: interview.Offline, Stage: interview.Sent, DueAt: now.Add(48 * time.Hour)})
+	record(t, &interview.Session{Seed: "burning-cash-0801", Problem: "relay",
+		Mode: interview.AWS, Host: "203.0.113.9", TTLMinutes: 60, CreatedAt: now.Add(-3 * time.Hour)})
+	record(t, &interview.Session{Seed: "unsent-draft-0801", Problem: "relay",
+		Mode: interview.Offline, Stage: interview.Created})
+	record(t, &interview.Session{Seed: "late-heron-0801", Problem: "relay",
+		Mode: interview.Offline, Stage: interview.Sent, DueAt: now.Add(-2 * time.Hour)})
+	record(t, &interview.Session{Seed: "graded-next-0801", Problem: "relay",
+		Mode: interview.Offline, Stage: interview.Returned})
+
+	code, stdout, stderr := run(t, "sessions")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	want := []string{
+		"burning-cash-0801", // past its ttl, and billing until someone ends it
+		"graded-next-0801",  // returned, waiting on a review
+		"late-heron-0801",   // overdue
+		"unsent-draft-0801", // never sent
+		"waiting-tide-0801", // sent, and the candidate has time left
+	}
+	if got := seedOrder(stdout, want); !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v\n%s", got, want, stdout)
+	}
+
+	code, stdout, stderr = run(t, "sessions", "--waiting")
+	if code != 0 {
+		t.Fatalf("--waiting: exit %d, stderr %q", code, stderr)
+	}
+	if got := seedOrder(stdout, want); !slices.Equal(got, want[:4]) {
+		t.Errorf("--waiting = %v, want %v\n%s", got, want[:4], stdout)
+	}
+}
+
+// seedOrder returns the seeds from want in the order the listing printed
+// them, so a missing seed fails as an order mismatch rather than silently.
+func seedOrder(stdout string, want []string) []string {
+	var got []string
+	for line := range strings.Lines(stdout) {
+		seed, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if slices.Contains(want, seed) {
+			got = append(got, seed)
+		}
+	}
+	return got
+}
+
+func TestSessionsWaitingWithNothingToDo(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	record(t, &interview.Session{Seed: "calm-bison-0801", Problem: "relay",
+		Mode: interview.Offline, Stage: interview.Sent, DueAt: time.Now().Add(48 * time.Hour)})
+	code, stdout, stderr := run(t, "sessions", "--waiting")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "nothing is waiting on you") {
+		t.Errorf("stdout = %q, want it to say so plainly", stdout)
 	}
 }
 

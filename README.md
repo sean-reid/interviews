@@ -20,6 +20,18 @@ Debugging interviews shell out to docker, kind, kubectl, tmux, ttyd, and
 asciinema; provisioning a host also needs terraform and the aws cli. Run
 `interviews doctor` to see what is missing and how to install it.
 
+Tell it where the problems are, once per machine:
+
+```sh
+interviews config set content <path>/content
+```
+
+Commands resolve the content root from `--content`, then that setting, then
+`$INTERVIEWS_CONTENT`, then `./content`. When the content tree is a git
+checkout, `start` warns if it is behind or has uncommitted changes, and
+`doctor` fetches and says how far behind, because interviewing against last
+month's problems is otherwise silent.
+
 ## Browsing content
 
 ```sh

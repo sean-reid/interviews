@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"text/tabwriter"
 
+	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/version"
 )
 
@@ -72,6 +73,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "interviews %s on %s/%s\n\n", version.Version, runtime.GOOS, runtime.GOARCH)
+	contentReport(stdout)
 	var missing []tool
 	broken := false
 	for _, g := range toolGroups {
@@ -117,4 +119,32 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// contentReport says where the problems are and whether the checkout is
+// current. Nothing else fetches: doctor is the command you run before a
+// candidate is waiting, so it can afford the round trip.
+func contentReport(stdout io.Writer) {
+	root, from := interview.ContentRoot()
+	fmt.Fprintf(stdout, "content  %s  (%s)\n", root, from)
+	if _, err := openRegistry(root, false, io.Discard); err != nil {
+		fmt.Fprintf(stdout, "  no problems there: %v\n", err)
+		fmt.Fprintf(stdout, "  interviews config set content <path to the problems checkout>/content\n\n")
+		return
+	}
+	s := contentStatus(root, true)
+	switch {
+	case s.Repo == "":
+		fmt.Fprintf(stdout, "  not a git checkout, so nothing can say whether it is current\n")
+	case s.Behind > 0:
+		fmt.Fprintf(stdout, "  %d commit(s) behind %s: git -C %s pull\n", s.Behind, s.Upstream, s.Repo)
+	case s.Upstream == "":
+		fmt.Fprintf(stdout, "  %s has no upstream, so nothing can say whether it is current\n", s.Repo)
+	default:
+		fmt.Fprintf(stdout, "  up to date with %s\n", s.Upstream)
+	}
+	if s.Dirty {
+		fmt.Fprintf(stdout, "  uncommitted changes under %s\n", root)
+	}
+	fmt.Fprintln(stdout)
 }

@@ -56,6 +56,11 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	// Interviewing against last month's problems is a silent failure, and the
+	// content is a checkout of its own now. Warn, never block: this is the
+	// command that runs with a candidate waiting.
+	warnStale(*contentRoot, stderr)
+
 	// Build the engine before announcing anything: an unknown problem, a
 	// take-home, or a bad --set has to fail before a cluster exists.
 	e, err := engineFor(*contentRoot, problemID, seed, "", sets, stdout, stderr)

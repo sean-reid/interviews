@@ -12,12 +12,16 @@ import (
 	"github.com/sean-reid/interviews/internal/registry"
 )
 
-// DefaultContentRoot is where commands look for content unless --content is given.
-const DefaultContentRoot = "./content"
+// DefaultContentRoot is the last resort when nothing says where content is.
+const DefaultContentRoot = interview.FallbackContentRoot
 
 func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *string) {
 	fs := newBareFlagSet(name, stderr)
-	content := fs.String("content", DefaultContentRoot, "content tree root")
+	// The default is the resolved root, so --content beats the config, the
+	// config beats the environment, and every command gets that order without
+	// a line of its own.
+	root, _ := interview.ContentRoot()
+	content := fs.String("content", root, "content tree root")
 	return fs, content
 }
 
@@ -59,6 +63,7 @@ var synopses = map[string]string{
 	"prove":    `interviews prove <problem-id> [--pack name] [--set k=v] [--keep]`,
 	"session":  `interviews session start|stop|evidence|timeline|kubeconfig <problem-id> [--seed id]`,
 	"redteam":  `interviews redteam <problem-id> [--pack name] | interviews redteam ledger`,
+	"config":   `interviews config | interviews config set content <path> | interviews config unset content`,
 	"doctor":   `interviews doctor`,
 	"version":  `interviews version`,
 
@@ -78,6 +83,7 @@ var synopses = map[string]string{
 // verbs a parent command dispatches on, so its help lists them instead of
 // only appearing when the invocation is already wrong.
 var verbs = map[string][]string{
+	"config":   {"set content <path>: where the problems are checked out", "unset content: fall back to $INTERVIEWS_CONTENT or ./content"},
 	"env":      {"up: build the environment and wait for verify", "verify: run the health check once", "down: tear it down, keeping the session evidence"},
 	"fault":    {"status: check every injected fault", "fix: apply the answer key for one fault or all of them"},
 	"grade":    {"sheet: render the grading sheet", "score: fill the objective record from the live environment", "hint: log a hint against a session elsewhere"},

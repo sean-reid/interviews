@@ -36,6 +36,7 @@ Authoring and CI:
   session    start | stop | evidence | timeline | kubeconfig | proxy by hand
 
 Everywhere:
+  config     where the problems are on this machine
   doctor     check this machine has what the modes you use need
   version    print the version
   help       this menu, or help <command> for one command
@@ -43,8 +44,9 @@ Everywhere:
 A live interview is start, hint, end. The commands under authoring are the
 pieces those are built from, for writing content and for CI.
 
-Every command takes --content <dir> (default ./content). --seed <interview-id>
-selects one session; without it, commands use the current one.
+Every command takes --content <dir>. Without it, the root comes from
+interviews config, then $INTERVIEWS_CONTENT, then ./content. --seed
+<interview-id> selects one session; without it, commands use the current one.
 `
 
 type command func(args []string, stdout, stderr io.Writer) int
@@ -55,6 +57,7 @@ var commands map[string]command
 
 func init() {
 	commands = map[string]command{
+		"config":    cmdConfig,
 		"doctor":    cmdDoctor,
 		"start":     cmdStart,
 		"end":       cmdEnd,

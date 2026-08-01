@@ -13,6 +13,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1193,5 +1194,96 @@ func TestStopReportsAndFailedStartDoesNot(t *testing.T) {
 	}
 	if strings.Contains(out2.String(), "stopped") {
 		t.Errorf("a failed start claims it stopped a session: %q", out2.String())
+	}
+}
+
+// tarFile returns one member's contents.
+func tarFile(t *testing.T, path, want string) []byte {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			t.Fatalf("%s has no %s", path, want)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Name != want {
+			continue
+		}
+		raw, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int64(len(raw)) != hdr.Size {
+			t.Fatalf("%s header says %d bytes, body has %d", want, hdr.Size, len(raw))
+		}
+		return raw
+	}
+}
+
+// The bundle is the artifact that leaves the machine and sits in a bucket.
+// Nothing grading needs is a credential: the URL tokens are the whole of
+// the session authentication, and the candidate kubeconfig is cluster
+// access.
+func TestEvidenceBundleCarriesNoCredentials(t *testing.T) {
+	m, _, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	if err := os.WriteFile(filepath.Join(wd, KubeconfigFile), []byte("token: sa-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(context.Background(), StartOptions{
+		BaseURL:        "https://host/",
+		CandidateToken: strings.Repeat("c", 32),
+		ObserverToken:  strings.Repeat("o", 32),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	tarPath := filepath.Join(wd, EvidenceFile)
+
+	if slices.Contains(tarNames(t, tarPath), KubeconfigFile) {
+		t.Error("bundle carries the candidate kubeconfig")
+	}
+	info := tarFile(t, tarPath, InfoFile)
+	for _, secret := range []string{strings.Repeat("c", 32), strings.Repeat("o", 32)} {
+		if strings.Contains(string(info), secret) {
+			t.Errorf("bundled %s carries a URL token", InfoFile)
+		}
+	}
+	// Still readable, and still says which session it was.
+	var parsed Info
+	if err := json.Unmarshal(info, &parsed); err != nil {
+		t.Fatalf("bundled %s is not valid json: %v", InfoFile, err)
+	}
+	if parsed.Problem == "" || parsed.StartedAt.IsZero() {
+		t.Errorf("redaction took the parts grading reads: %+v", parsed)
+	}
+
+	// The workdir copy keeps them: the host needs the tokens while the
+	// session runs.
+	local, err := LoadInfo(wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.CandidateToken == "" {
+		t.Error("redacted the workdir copy, not just the bundle")
 	}
 }

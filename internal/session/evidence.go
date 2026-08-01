@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +28,25 @@ type EvidenceOptions struct {
 // exists and skips what does not.
 var evidenceFiles = []string{
 	debug.StateFile, grading.ScoreFile, grading.HintsFile, TimelineFile,
-	InfoFile, CastFile, RawLogFile, KubeconfigFile, ScoreErrorFile,
+	InfoFile, CastFile, RawLogFile, ScoreErrorFile,
+}
+
+// redacted returns what a file should look like inside the bundle, or nil
+// to ship it as it is. The bundle is the artifact that leaves the machine
+// and sits in a bucket; nothing grading needs is a credential.
+func redacted(name string, raw []byte) ([]byte, error) {
+	if name != InfoFile {
+		return nil, nil
+	}
+	var info Info
+	if err := json.Unmarshal(raw, &info); err != nil {
+		return nil, err
+	}
+	// The tokens are the whole of the URL authentication, and the URLs
+	// contain them.
+	info.CandidateToken, info.ObserverToken = "", ""
+	info.CandidateURL, info.ObserverURL = "", ""
+	return json.MarshalIndent(info, "", "  ")
 }
 
 // Evidence refreshes score.json from the live environment, bundles the
@@ -114,8 +133,8 @@ func RefreshScore(ctx context.Context, e *debug.Engine) (*grading.Score, error) 
 
 // bundle writes the existing evidence files into a tar.gz at dest.
 func bundle(workdir, dest string) (err error) {
-	// The archive carries the session tokens and the candidate service
-	// account token, so it must not be readable beyond its owner.
+	// The archive carries a recording of the candidate's terminal, so it
+	// must not be readable beyond its owner.
 	// Build beside the target and swap it in, so a pass that fails partway
 	// leaves the last good bundle intact. The sync timer reruns every two
 	// minutes, and a truncated archive is worse than a stale one.
@@ -147,7 +166,7 @@ func bundle(workdir, dest string) (err error) {
 	return nil
 }
 
-func addFile(tw *tar.Writer, workdir, name string) (err error) {
+func addFile(tw *tar.Writer, workdir, name string) error {
 	path := filepath.Join(workdir, name)
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
@@ -156,24 +175,26 @@ func addFile(tw *tar.Writer, workdir, name string) (err error) {
 	if err != nil {
 		return err
 	}
+	// Read rather than stream: the files are small, and a redacted copy has
+	// a different length than the header would claim.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if clean, err := redacted(name, raw); err != nil {
+		return fmt.Errorf("bundle %s: %w", name, err)
+	} else if clean != nil {
+		raw = clean
+	}
 	hdr, err := tar.FileInfoHeader(info, "")
 	if err != nil {
 		return err
 	}
-	hdr.Name = name
+	hdr.Name, hdr.Size = name, int64(len(raw))
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}()
-	if _, err := io.Copy(tw, f); err != nil {
+	if _, err := tw.Write(raw); err != nil {
 		return fmt.Errorf("bundle %s: %w", name, err)
 	}
 	return nil

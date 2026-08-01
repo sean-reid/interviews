@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/sean-reid/interviews/internal/grading"
+	"github.com/sean-reid/interviews/internal/interview"
+	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
 // stateFor writes engine state as env up would have, so grade commands run
@@ -264,5 +266,32 @@ func TestGradeHintCreatesAnExplicitWorkdirAndNamesTheLedger(t *testing.T) {
 	}
 	if _, err := os.Stat(ledger); err != nil {
 		t.Errorf("no ledger written: %v", err)
+	}
+}
+
+// The level decides how the rubric is read. start records it, so the sheet
+// should not ask for it again.
+func TestGradeSheetTakesTheLevelFromTheSession(t *testing.T) {
+	wd := stateFor(t, "01-image-typo")
+	record(t, &interview.Session{
+		Seed: "calm-bison-0731", Problem: "pipeline-meltdown",
+		Level: taxonomy.Senior, Workdir: wd,
+	})
+	code, stdout, stderr := run(t, "grade", "sheet", "pipeline-meltdown", "--content", goodRoot)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "| Level targeted | senior |") {
+		t.Errorf("sheet did not pick up the recorded level:\n%s", stdout)
+	}
+	// An explicit flag still wins, for grading one interview against a
+	// different band.
+	_, stdout, _ = run(t, "grade", "sheet", "pipeline-meltdown", "--content", goodRoot, "--level", "staff")
+	if !strings.Contains(stdout, "| Level targeted | staff |") {
+		t.Errorf("--level ignored:\n%s", stdout)
+	}
+	if code, _, stderr := run(t, "grade", "sheet", "pipeline-meltdown", "--content", goodRoot,
+		"--level", "wizard"); code != 2 || !strings.Contains(stderr, "--level") {
+		t.Errorf("bad level: exit %d, stderr %q", code, stderr)
 	}
 }

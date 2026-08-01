@@ -13,6 +13,7 @@ import (
 
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/grading"
+	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/registry"
 	"github.com/sean-reid/interviews/internal/session"
 	"github.com/sean-reid/interviews/internal/variant"
@@ -38,30 +39,30 @@ func cmdGrade(args []string, stdout, stderr io.Writer) int {
 }
 
 // gradeTarget resolves the shared plumbing: problem, variant, workdir.
-func gradeTarget(contentRoot, problemID, seed, workdir string, sets []string, stderr io.Writer) (*registry.Entry, *variant.Resolved, string, error) {
+func gradeTarget(contentRoot, problemID, seed, workdir string, sets []string, stderr io.Writer) (*registry.Entry, *variant.Resolved, string, string, error) {
 	seed, workdir, err := resolveTarget(seed, workdir, stderr)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 	overrides, err := parseOverrides(sets)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 	reg, err := openRegistry(contentRoot, false, stderr)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 	entry, ok := reg.Get(problemID)
 	if !ok {
-		return nil, nil, "", fmt.Errorf("no problem %q (try interviews list)", problemID)
+		return nil, nil, "", "", fmt.Errorf("no problem %q (try interviews list)", problemID)
 	}
 	v, err := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, overrides)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 	if workdir == "" {
 		if workdir, err = debug.DefaultWorkdir(v); err != nil {
-			return nil, nil, "", err
+			return nil, nil, "", "", err
 		}
 	}
 	// The environment recorded what it was built with. Re-deriving the
@@ -79,7 +80,7 @@ func gradeTarget(contentRoot, problemID, seed, workdir string, sets []string, st
 			}
 		}
 	}
-	return entry, v, workdir, nil
+	return entry, v, workdir, seed, nil
 }
 
 func gradeSheet(args []string, stdout, stderr io.Writer) int {
@@ -90,6 +91,7 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 	rubricPath := fs.String("rubric", "", "override the built-in rubric")
 	hintsPath := fs.String("hints", "",
 		"a second hints ledger to merge in, as a directory or a file (see grade hint --workdir)")
+	levelFlag := fs.String("level", "", "level to grade against (default: what the session recorded)")
 	var sets repeatedFlag
 	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
@@ -102,7 +104,7 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	entry, v, wd, err := gradeTarget(*contentRoot, pos[0], *seed, *workdir, sets, stderr)
+	entry, v, wd, resolvedSeed, err := gradeTarget(*contentRoot, pos[0], *seed, *workdir, sets, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews grade sheet: %v\n", err)
 		return 1
@@ -133,9 +135,19 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 		hints = grading.MergeHints(hints, logged)
 	}
 
+	level, err := parseLevel(*levelFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews grade sheet: %v\n", err)
+		return 2
+	}
+	if level == "" {
+		if rec, lerr := interview.Load(resolvedSeed); lerr == nil {
+			level = rec.Level
+		}
+	}
 	data := grading.SheetData{
 		Rubric: rubric, Manifest: entry.Problem.Manifest,
-		Variant: v, Score: score, Hints: hints,
+		Variant: v, Score: score, Hints: hints, Level: level,
 	}
 	if *outPath != "" {
 		var buf strings.Builder
@@ -215,7 +227,7 @@ func gradeHint(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews grade hint: --minute %q is not a non-negative integer\n", *minute)
 		return 2
 	}
-	_, _, wd, err := gradeTarget(*contentRoot, pos[0], *seed, *workdir, sets, stderr)
+	_, _, wd, _, err := gradeTarget(*contentRoot, pos[0], *seed, *workdir, sets, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews grade hint: %v\n", err)
 		return 1

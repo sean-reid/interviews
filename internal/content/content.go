@@ -69,6 +69,10 @@ type ParamSpec struct {
 	Min     *int      `yaml:"min,omitempty"`
 	Max     *int      `yaml:"max,omitempty"`
 	Default any       `yaml:"default,omitempty"`
+	// Secret keeps the resolved value out of artifacts a human passes
+	// around. The value still reaches the environment; a grading sheet gets
+	// pasted into a hiring thread, and a credential does not belong there.
+	Secret bool `yaml:"secret,omitempty"`
 }
 
 // Visibility declares what a candidate may see. Everything else in the

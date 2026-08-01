@@ -65,16 +65,26 @@ func TestParseRejections(t *testing.T) {
 
 func sheetFor(t *testing.T, m content.Manifest, score *Score, hints []Hint) string {
 	t.Helper()
+	return sheetWith(t, SheetData{Manifest: m, Score: score, Hints: hints})
+}
+
+// sheetWith renders a sheet, filling in the rubric and variant every case
+// shares.
+func sheetWith(t *testing.T, d SheetData) string {
+	t.Helper()
 	r, err := Default()
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := &variant.Resolved{
-		Problem: m.ID, InterviewID: "calm-bison-0731",
-		Params: map[string]any{"fault_pack": "pack-a", "scale": 5},
+	d.Rubric = r
+	if d.Variant == nil {
+		d.Variant = &variant.Resolved{
+			Problem: d.Manifest.ID, InterviewID: "calm-bison-0731",
+			Params: map[string]any{"fault_pack": "pack-a", "scale": 5},
+		}
 	}
 	var sb strings.Builder
-	if err := RenderSheet(&sb, SheetData{Rubric: r, Manifest: m, Variant: v, Score: score, Hints: hints}); err != nil {
+	if err := RenderSheet(&sb, d); err != nil {
 		t.Fatal(err)
 	}
 	return sb.String()
@@ -301,5 +311,63 @@ func TestSheetSaysWhenAScoreCarriesNoTimestamp(t *testing.T) {
 	out := sheetFor(t, debuggingManifest(), score, nil)
 	if !strings.Contains(out, "does not say when it was measured") {
 		t.Error("sheet presents an undated score as if it were current")
+	}
+}
+
+// The level decides how the rubric is read, and it was the one thing the
+// tool would not accept: the row was a blank to fill in by hand above all
+// five bands, including ones the problem does not grade.
+func TestSheetTargetsOneLevel(t *testing.T) {
+	out := sheetWith(t, SheetData{Manifest: debuggingManifest(), Level: taxonomy.Senior})
+	if !strings.Contains(out, "| Level targeted | senior |") {
+		t.Error("level not filled in")
+	}
+	if !strings.Contains(out, "## Calibration band\n") {
+		t.Error("still headed as if it printed every band")
+	}
+	if !strings.Contains(out, "| senior |") {
+		t.Error("the targeted band is missing")
+	}
+	for _, other := range []string{"| entry |", "| staff |", "| principal |", "| mid |"} {
+		if strings.Contains(out, other) {
+			t.Errorf("sheet prints %s, which this interview was not calibrated for", other)
+		}
+	}
+}
+
+func TestSheetWithoutALevelKeepsEveryBand(t *testing.T) {
+	out := sheetWith(t, SheetData{Manifest: debuggingManifest()})
+	if !strings.Contains(out, "(this problem grades: mid, senior)") {
+		t.Error("unlevelled sheet does not say what the problem grades")
+	}
+	for _, l := range taxonomy.Levels {
+		if !strings.Contains(out, "| "+string(l)+" |") {
+			t.Errorf("band for %s missing", l)
+		}
+	}
+}
+
+// The sheet gets pasted into a hiring thread. A generated credential is not
+// something to identify a session by.
+func TestSheetRedactsSecretParameters(t *testing.T) {
+	m := debuggingManifest()
+	m.Params = map[string]content.ParamSpec{
+		"db_password": {Type: content.Choice, Secret: true},
+		"scale":       {Type: content.Int},
+	}
+	out := sheetWith(t, SheetData{
+		Manifest: m,
+		Variant: &variant.Resolved{
+			Problem: m.ID, InterviewID: "calm-bison-0731",
+			Params: map[string]any{"db_password": "quiet-cargo", "scale": 5},
+		},
+	})
+	if strings.Contains(out, "quiet-cargo") {
+		t.Error("sheet prints a secret parameter value")
+	}
+	for _, want := range []string{"db_password=(secret)", "scale=5"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("variant line missing %q:\n%s", want, out)
+		}
 	}
 }

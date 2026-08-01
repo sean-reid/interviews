@@ -254,3 +254,19 @@ func TestValidateJSON(t *testing.T) {
 		t.Errorf("validate JSON = %+v", out)
 	}
 }
+
+// The listing has had a LEVELS column since the start with no way to filter
+// on it, which is the question being asked of it.
+func TestListFiltersByLevel(t *testing.T) {
+	code, stdout, stderr := run(t, "list", "--content", goodRoot, "--level", "senior")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "pipeline-meltdown") {
+		t.Errorf("senior problem missing:\n%s", stdout)
+	}
+	if code, _, stderr := run(t, "list", "--content", goodRoot, "--level", "wizard"); code != 2 ||
+		!strings.Contains(stderr, "--level") {
+		t.Errorf("bad level: exit %d, stderr %q", code, stderr)
+	}
+}

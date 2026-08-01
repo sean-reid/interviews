@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -24,6 +25,7 @@ type listItem struct {
 func cmdList(args []string, stdout, stderr io.Writer) int {
 	fs, contentRoot := newFlagSet("list", stderr)
 	typeFilter := fs.String("type", "", "only this interview type")
+	levelFilter := fs.String("level", "", "only problems that grade this level")
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	positional, perr := parsePermuted(fs, args)
 	if perr != nil {
@@ -35,6 +37,11 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	}
 	if *typeFilter != "" && !taxonomy.ValidType(taxonomy.Type(*typeFilter)) {
 		fmt.Fprintf(stderr, "interviews list: unknown type %q\n", *typeFilter)
+		return 2
+	}
+	level, err := parseLevel(*levelFilter)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews list: %v\n", err)
 		return 2
 	}
 	reg, err := openRegistry(*contentRoot, false, stderr)
@@ -49,6 +56,9 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		if *typeFilter != "" && string(e.Type) != *typeFilter {
+			continue
+		}
+		if level != "" && !slices.Contains(e.Problem.Manifest.Levels, level) {
 			continue
 		}
 		items = append(items, itemFor(e.Problem.Manifest))

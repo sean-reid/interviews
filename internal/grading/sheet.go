@@ -20,6 +20,9 @@ type SheetData struct {
 	Variant  *variant.Resolved
 	Score    *Score // nil until interviews grade score has run
 	Hints    []Hint
+	// Level is who this interview was calibrated for. Empty leaves the row
+	// blank and prints every band, which is the old behavior.
+	Level taxonomy.Level
 }
 
 // sheetText is the grading sheet template; anchor iteration uses helper
@@ -29,7 +32,7 @@ const sheetText = `# Grading sheet: {{.Manifest.Title}}
 | | |
 |---|---|
 | Candidate | |
-| Level targeted | (this problem grades: {{join .LevelNames ", "}}) |
+| Level targeted | {{if .Level}}{{.Level}}{{else}}(this problem grades: {{join .LevelNames ", "}}){{end}} |
 | Interviewer | |
 | Date | |
 | Interview id | {{.Variant.InterviewID}} |
@@ -70,7 +73,7 @@ Attach the submitted artifact and note in one line each: what works, what is unf
 {{range $s := anchorScores}}
 - **{{$s}}**: {{anchor $d $s}}{{end}}
 {{end}}
-## Calibration bands
+## Calibration band{{if not .Level}}s{{end}}
 
 | Level | A typical pass |
 |---|---|
@@ -151,10 +154,19 @@ func RenderSheet(w io.Writer, d SheetData) error {
 		ctx.LevelNames = append(ctx.LevelNames, string(l))
 	}
 	for _, l := range taxonomy.Levels {
+		// One band when the interview says who it was for. Five bands next to
+		// a blank row is a table to read past, not a thing to grade against.
+		if d.Level != "" && l != d.Level {
+			continue
+		}
 		ctx.LevelRows = append(ctx.LevelRows, LevelRow{Level: l, Band: d.Rubric.Levels[l]})
 	}
 	var parts []string
 	for _, name := range slices.Sorted(maps.Keys(d.Variant.Params)) {
+		if d.Manifest.Params[name].Secret {
+			parts = append(parts, name+"=(secret)")
+			continue
+		}
 		parts = append(parts, fmt.Sprintf("%s=%v", name, d.Variant.Params[name]))
 	}
 	ctx.ParamsLine = strings.Join(parts, ", ")

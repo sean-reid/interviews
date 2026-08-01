@@ -158,7 +158,7 @@ func TestGradeArgErrors(t *testing.T) {
 		t.Error("unknown grade verb should be a usage error")
 	}
 	if code, _, stderr := run(t, "grade", "sheet", "pipeline-meltdown", "--content", goodRoot); code != 1 ||
-		!strings.Contains(stderr, "--seed is required") {
+		!strings.Contains(stderr, "no session yet") {
 		t.Errorf("sheet without seed: exit %d, stderr %q", code, stderr)
 	}
 	if code, _, _ := run(t, "grade", "hint", "pipeline-meltdown", "text",

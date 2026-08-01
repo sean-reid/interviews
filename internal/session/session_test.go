@@ -634,7 +634,7 @@ func TestStartFailsWhenAListenerDiesAtOnce(t *testing.T) {
 	if len(r.callsMatching("tmux kill-session -t "+m.Engine.EnvName())) != 1 {
 		t.Errorf("no tmux kill-session in %v", r.calls)
 	}
-	if entries, err := os.ReadDir(filepath.Join(wd, "pids")); err != nil || len(entries) != 0 {
+	if entries, err := os.ReadDir(filepath.Join(wd, pidsDir)); err != nil || len(entries) != 0 {
 		t.Errorf("pidfiles left behind: %v, %v", entries, err)
 	}
 	if len(r.listening) != 0 {
@@ -722,8 +722,10 @@ func TestStopKillsProcessesAndBundles(t *testing.T) {
 	if len(r.callsMatching("tmux kill-session -t "+m.Engine.EnvName())) != 1 {
 		t.Errorf("no tmux kill-session in %v", r.calls)
 	}
-	if entries, err := os.ReadDir(filepath.Join(wd, "pids")); err != nil || len(entries) != 0 {
-		t.Errorf("pidfiles left behind: %v, %v", entries, err)
+	// The directory goes with the pidfiles: teardown lists what is left in
+	// the workdir, and scratch space there reads as evidence.
+	if _, err := os.Stat(filepath.Join(wd, pidsDir)); !os.IsNotExist(err) {
+		t.Errorf("pid directory left behind: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(wd, EvidenceFile)); err != nil {
 		t.Errorf("no final evidence bundle: %v", err)
@@ -1157,5 +1159,39 @@ func TestEvidenceSkipsTheRefreshAfterTeardown(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, EvidenceFile)); err != nil {
 		t.Errorf("no bundle written after teardown: %v", err)
+	}
+}
+
+// Stop is the command that stops a session, so it is the one that has to
+// say so. The line belongs nowhere else: a start that failed and rolled
+// itself back claiming to have stopped a session and taken its evidence
+// describes something that never ran.
+func TestStopReportsAndFailedStartDoesNot(t *testing.T) {
+	m, _, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "stopped") {
+		t.Errorf("stop said nothing about stopping: %q", out.String())
+	}
+	// Scratch, not evidence: teardown lists whatever is left in the workdir.
+	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, pidsDir)); !os.IsNotExist(err) {
+		t.Errorf("pid directory survived stop: %v", err)
+	}
+
+	m2, _, out2 := testManager(t, nil)
+	writeState(t, m2.Engine.Workdir, "01-image-typo")
+	r2 := m2.Engine.Runner.(*fakeRunner)
+	r2.failStart["ttyd"] = errors.New("no ttyd here")
+	if _, err := m2.Start(context.Background(), StartOptions{}); err == nil {
+		t.Fatal("start with no ttyd succeeded")
+	}
+	if strings.Contains(out2.String(), "stopped") {
+		t.Errorf("a failed start claims it stopped a session: %q", out2.String())
 	}
 }

@@ -484,7 +484,6 @@ func (m *Manager) cleanup(ctx context.Context, started []proc, socket string) {
 		}
 	}
 	m.killSession(ctx, socket)
-	fmt.Fprintf(m.Out, "session %s stopped; taking the final evidence pass\n", m.Engine.EnvName())
 }
 
 // killSession ends the tmux session on a socket. A shared server accepts
@@ -570,6 +569,12 @@ func (m *Manager) Stop(ctx context.Context) error {
 			return err
 		}
 	}
+	// The directory is scratch, not evidence: leaving it behind makes
+	// teardown report it as something worth keeping.
+	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(m.Out, "leftover %s: %v\n", pidsDir, err)
+	}
 	m.killSession(ctx, socket)
+	fmt.Fprintf(m.Out, "session %s stopped; taking the final evidence pass\n", m.Engine.EnvName())
 	return m.Evidence(ctx, EvidenceOptions{Final: true})
 }

@@ -40,8 +40,22 @@ exactly when grading it later, and no two candidates get a byte-identical proble
 
 ### Debugging
 
-Debugging problems run in disposable local environments, kind or docker compose per
-the problem's env spec:
+Running one is three commands. `start` invents the interview id, builds the
+environment, injects the variant's fault pack, and opens the recorded terminal;
+everything afterwards defaults to that session, so the id is never typed:
+
+```sh
+interviews start <problem> --level senior   # prints the id and both URLs
+interviews hint "asked what the events say" # minute measured from the start
+interviews end                              # stop, keep the evidence, tear down
+```
+
+`interviews sessions` lists what is running and what ended, with the state read
+from each environment rather than from the record. `interviews sessions show`
+prints one session in full, for when the URLs have been lost.
+
+Underneath, each step is a command of its own, which is what content authoring
+and CI use:
 
 ```sh
 interviews env up <problem> --seed <id>     # healthy environment
@@ -60,8 +74,9 @@ environment every fault must break its check when injected and converge after it
 documented fix, then the whole pack must break and recover end to end. CI runs it on
 every change that could affect a scenario.
 
-For a real interview, the session stack layers a shared recorded terminal over that
-environment, writable for the candidate and read-only for the observer:
+The session stack `start` puts up is a shared recorded terminal over that
+environment, writable for the candidate and read-only for the observer. Its
+pieces are also separate commands:
 
 ```sh
 interviews session start <problem> --seed <id>   # prints candidate and observer URLs
@@ -135,8 +150,10 @@ interviews grade score <problem> --seed <id>    # fill the objective table from 
 interviews grade hint <problem> "text" --seed <id> --minute 17 [--workdir <dir>]
 ```
 
-Without `--workdir` a hint goes to the session the seed names, and the command
-refuses a seed with no session, because a typo there is otherwise invisible.
+`interviews hint` is the one to use during a session: it takes neither a seed nor
+a minute. `grade hint` is for logging one against a session this machine did not
+start, which is the remote case. Without `--workdir` it refuses a seed with no
+session, because a typo there is otherwise invisible.
 Hints are logged from wherever the interviewer is sitting, which for a remote session is
 not where the evidence lands, and naming a directory creates it. `grade sheet --hints <dir>` merges that ledger into the
 sheet, so a session host never needs to be reachable to record one.

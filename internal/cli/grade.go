@@ -39,8 +39,9 @@ func cmdGrade(args []string, stdout, stderr io.Writer) int {
 
 // gradeTarget resolves the shared plumbing: problem, variant, workdir.
 func gradeTarget(contentRoot, problemID, seed, workdir string, sets []string, stderr io.Writer) (*registry.Entry, *variant.Resolved, string, error) {
-	if seed == "" {
-		return nil, nil, "", fmt.Errorf("--seed is required (the interview id)")
+	seed, workdir, err := resolveTarget(seed, workdir, stderr)
+	if err != nil {
+		return nil, nil, "", err
 	}
 	overrides, err := parseOverrides(sets)
 	if err != nil {

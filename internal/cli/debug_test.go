@@ -10,7 +10,7 @@ import (
 
 func TestEnvArgErrors(t *testing.T) {
 	if code, _, stderr := run(t, "env", "up", "pipeline-meltdown", "--content", goodRoot); code != 1 ||
-		!strings.Contains(stderr, "--seed is required") {
+		!strings.Contains(stderr, "no session yet") {
 		t.Errorf("env up without seed: exit %d, stderr %q", code, stderr)
 	}
 	if code, _, _ := run(t, "env", "up", "--content", goodRoot, "--seed", "s"); code != 2 {

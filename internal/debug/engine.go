@@ -361,14 +361,25 @@ func (e *Engine) Down(ctx context.Context, purge bool) (kept []string, err error
 		return nil, err
 	}
 	for _, ent := range entries {
-		if ent.Name() != StateFile {
-			kept = append(kept, filepath.Join(e.Workdir, ent.Name()))
+		if ent.Name() == StateFile || emptyDir(filepath.Join(e.Workdir, ent.Name()), ent) {
+			continue
 		}
+		kept = append(kept, filepath.Join(e.Workdir, ent.Name()))
 	}
 	if len(kept) == 0 {
 		return nil, os.RemoveAll(e.Workdir)
 	}
 	return kept, nil
+}
+
+// emptyDir reports a directory with nothing in it, which is scratch space
+// something forgot to clear rather than evidence worth naming.
+func emptyDir(path string, ent fs.DirEntry) bool {
+	if !ent.IsDir() {
+		return false
+	}
+	inner, err := os.ReadDir(path)
+	return err == nil && len(inner) == 0
 }
 
 // Break injects the variant's fault pack in lexical fault-id order.

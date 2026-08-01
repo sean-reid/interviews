@@ -21,8 +21,9 @@ const answerKeyNotice = "-- interviewer only: this names the faults. Do not shar
 // engineFor loads a debugging problem and builds its engine. Every
 // debugging command funnels through here.
 func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdout, stderr io.Writer) (*debug.Engine, error) {
-	if seed == "" {
-		return nil, fmt.Errorf("--seed is required (the interview id; it selects the variant)")
+	seed, workdir, err := resolveTarget(seed, workdir, stderr)
+	if err != nil {
+		return nil, err
 	}
 	overrides, err := parseOverrides(sets)
 	if err != nil {

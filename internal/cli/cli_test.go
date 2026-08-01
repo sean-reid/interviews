@@ -1,14 +1,23 @@
 package cli
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/version"
 )
 
+// run drives the CLI against a registry of its own. Without that, a test
+// picks up whatever session the developer running it has open, and the
+// commands that default to the current one behave differently on every
+// machine.
 func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
+	if os.Getenv(interview.HomeEnv) == "" {
+		t.Setenv(interview.HomeEnv, t.TempDir())
+	}
 	var out, errBuf strings.Builder
 	code = Run(args, &out, &errBuf)
 	return code, out.String(), errBuf.String()

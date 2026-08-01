@@ -19,7 +19,7 @@ func TestSessionArgErrors(t *testing.T) {
 		t.Error("unknown session verb should be a usage error")
 	}
 	if code, _, stderr := run(t, "session", "start", "pipeline-meltdown", "--content", goodRoot); code != 1 ||
-		!strings.Contains(stderr, "--seed is required") {
+		!strings.Contains(stderr, "no session yet") {
 		t.Errorf("start without seed: exit %d, stderr %q", code, stderr)
 	}
 	if code, _, _ := run(t, "session", "timeline", "pipeline-meltdown",

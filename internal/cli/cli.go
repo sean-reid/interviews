@@ -15,28 +15,40 @@ const usage = `interviews - run technical interviews that measure resourcefulnes
 Usage:
   interviews <command> [args]
 
-Commands:
+Running an interview:
   list       list problems in the content tree
+  start      build an environment, break it, and open a recorded terminal
+  hint       log a hint against the running session
+  end        stop the session, keep the evidence, tear the environment down
+  sessions   what is running, what ended, and the URLs for each
+  grade      sheet | score | hint: rubric-first grading artifacts
+  bundle     write a take-home or system design bundle (dir or .tar.gz)
+
+Authoring and CI:
   describe   show one problem, optionally with a resolved variant
   validate   check the content tree; exits 1 on any error
-  env        up | verify | down a debugging environment
+  prove      re-prove every fault: inject breaks, documented fix works
+  redteam    drive a frontier agent at a problem; ledger records the verdict
+  env        up | verify | down a debugging environment by hand
   break      inject the variant's fault pack
   fault      status | fix injected faults (interviewer only)
-  prove      re-prove every fault: inject breaks, documented fix works
-  session    start | stop | evidence | timeline | kubeconfig: live session stack
-  grade      sheet | score | hint: rubric-first grading artifacts
-  bundle     write a take-home candidate bundle (dir or .tar.gz)
-  redteam    drive a frontier agent at a problem; ledger records the verdict
+  session    start | stop | evidence | timeline | kubeconfig by hand
   version    print the version
-  help       show this help
 
-Every command takes --content <dir> (default ./content). Debugging commands
-take --seed <interview-id>, which selects the variant deterministically.
+A live interview is start, hint, end. The commands under authoring are the
+pieces those are built from, for writing content and for CI.
+
+Every command takes --content <dir> (default ./content). --seed <interview-id>
+selects one session; without it, commands use the current one.
 `
 
 type command func(args []string, stdout, stderr io.Writer) int
 
 var commands = map[string]command{
+	"start":    cmdStart,
+	"end":      cmdEnd,
+	"hint":     cmdHint,
+	"sessions": cmdSessions,
 	"list":     cmdList,
 	"describe": cmdDescribe,
 	"validate": cmdValidate,

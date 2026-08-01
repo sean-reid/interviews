@@ -51,6 +51,29 @@ What the policy allows, and why each part is there:
 `Describe*` calls cannot be scoped to a resource, so those are `"Resource": "*"`
 with a region condition. Everything that can be scoped is.
 
+Two details worth knowing before editing the file. `iam:PassRole` has no matching
+API call: it is a permission the console and terraform check, and deleting it
+because it does not appear in the API reference breaks the instance profile
+attachment. And every other action name is an API operation, which is checkable
+offline against the model the AWS CLI ships:
+
+```sh
+python3 - <<'EOF'
+import json
+base = "/usr/local/aws-cli/awscli/botocore/data"
+ops = set(json.load(open(f"{base}/ec2/2016-11-15/service-2.json"))["operations"])
+print("DescribeAddressesAttribute" in ops)
+EOF
+```
+
+That check is how `ec2:DescribeInstanceMetadataDefaults` came out of this policy:
+it does not exist. The real names are `GetInstanceMetadataDefaults` and
+`ModifyInstanceMetadataDefaults`, and neither is needed, because
+`metadata_options` goes out with `RunInstances` and reads back through
+`DescribeInstances`. Changing it on a host that is already up would need
+`ec2:ModifyInstanceMetadataOptions`, which no documented flow here does: each
+interview gets a fresh host.
+
 The instance gets its own much smaller role, written by the module: it may put
 objects under `s3://<bucket>/<seed>/` and get the content tarball, nothing more.
 A candidate on the host inherits that and no more.

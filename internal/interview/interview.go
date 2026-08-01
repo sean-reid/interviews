@@ -25,10 +25,27 @@ import (
 // Mode is where a session runs.
 type Mode string
 
-// The two modes. Local is this machine; AWS is a provisioned host.
+// Where a session runs. Offline is a take-home or a design exercise: there
+// is no environment, so the record is the only thing that knows the session
+// exists.
 const (
-	Local Mode = "local"
-	AWS   Mode = "aws"
+	Local   Mode = "local"
+	AWS     Mode = "aws"
+	Offline Mode = "offline"
+)
+
+// Stage is how far an offline interview has got. A debugging session's
+// state is derived from its workdir, but whether a take-home was sent, came
+// back, or has been reviewed is known only to the interviewer, so for these
+// the record is the source of truth rather than an index.
+type Stage string
+
+// The stages an offline interview moves through.
+const (
+	Created  Stage = "created"
+	Sent     Stage = "sent"
+	Returned Stage = "returned"
+	Reviewed Stage = "reviewed"
 )
 
 // Session is one interview. Everything an interviewer might have to ask
@@ -55,6 +72,14 @@ type Session struct {
 	// Evidence is where the bundle lands: a directory locally, an s3 URI
 	// for a provisioned host.
 	Evidence string `json:"evidence,omitempty"`
+
+	// Stage, and the paths either side of it, are the offline types: the
+	// bundle that went out and the submission that came back.
+	Stage          Stage     `json:"stage,omitempty"`
+	BundlePath     string    `json:"bundle_path,omitempty"`
+	SubmissionPath string    `json:"submission_path,omitempty"`
+	DueAt          time.Time `json:"due_at,omitzero"`
+	ReviewedAt     time.Time `json:"reviewed_at,omitzero"`
 
 	CandidateURL string `json:"candidate_url,omitempty"`
 	ObserverURL  string `json:"observer_url,omitempty"`

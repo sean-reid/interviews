@@ -185,7 +185,7 @@ func TestSessionsDerivesStateFromTheWorkdir(t *testing.T) {
 		state map[string]any
 		want  string
 	}{
-		{"broken", map[string]any{"injected": []string{"01-x"}}, "broken"},
+		{"injected", map[string]any{"injected": []string{"01-x"}}, "1 injected"},
 		{"healthy", map[string]any{"injected": []string{}}, "healthy"},
 		{"torn down", map[string]any{"injected": []string{"01-x"}, "torn_down_at": "2026-07-31T10:00:00Z"}, "torn down"},
 	} {

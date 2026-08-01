@@ -16,7 +16,7 @@ ExecStart=/opt/interviews/interviews break ${IV_PROBLEM} --seed ${IV_SEED} --con
 # Best effort: compose-flavored problems have no cluster to scope, and the
 # session then starts without a kubeconfig to export.
 ExecStart=-/opt/interviews/interviews session kubeconfig ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --out /run/interviews/kube/candidate.kubeconfig
-ExecStart=/opt/interviews/interviews session start ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --base-url https://${IV_HOSTNAME} --candidate-token ${IV_CANDIDATE_TOKEN} --observer-token ${IV_OBSERVER_TOKEN} --candidate-user candidate --tmux-socket /run/interviews/tmux/candidate.sock --candidate-kubeconfig /run/interviews/kube/candidate.kubeconfig
+ExecStart=/opt/interviews/interviews session start ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --base-url https://${IV_HOSTNAME} --candidate-token ${IV_CANDIDATE_TOKEN} --observer-token ${IV_OBSERVER_TOKEN} --app-token ${IV_APP_TOKEN} --candidate-user candidate --tmux-socket /run/interviews/tmux/candidate.sock --candidate-kubeconfig /run/interviews/kube/candidate.kubeconfig
 
 [Install]
 WantedBy=multi-user.target

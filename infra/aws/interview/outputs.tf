@@ -10,6 +10,12 @@ output "observer_url" {
   description = "Read-only session URL for the interviewer"
 }
 
+output "app_url" {
+  value       = "https://${aws_eip.this.public_ip}.sslip.io/a/${random_password.app_token.result}"
+  sensitive   = true
+  description = "The app under investigation, for problems that declare one; 502s while the faults are in"
+}
+
 output "evidence_path" {
   value       = "s3://${var.evidence_bucket}/${var.seed}/"
   description = "Where the host syncs evidence.tar.gz"

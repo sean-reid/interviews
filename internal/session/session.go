@@ -45,22 +45,30 @@ const (
 const (
 	CandidatePort = 8001
 	ObserverPort  = 8002
+	// AppPort fronts the candidate-facing app, when the problem has one.
+	AppPort = 8003
 )
 
 // Info is the on-disk record of a live session, workdir/session.json.
 type Info struct {
-	Problem        string    `json:"problem"`
-	Seed           string    `json:"interview_id"`
-	TmuxSession    string    `json:"tmux_session"`
-	TmuxSocket     string    `json:"tmux_socket,omitempty"`
-	CandidateUser  string    `json:"candidate_user,omitempty"`
-	CandidateToken string    `json:"candidate_token"`
-	ObserverToken  string    `json:"observer_token"`
-	CandidatePort  int       `json:"candidate_port"`
-	ObserverPort   int       `json:"observer_port"`
-	CandidateURL   string    `json:"candidate_url"`
-	ObserverURL    string    `json:"observer_url"`
-	StartedAt      time.Time `json:"started_at"`
+	Problem        string `json:"problem"`
+	Seed           string `json:"interview_id"`
+	TmuxSession    string `json:"tmux_session"`
+	TmuxSocket     string `json:"tmux_socket,omitempty"`
+	CandidateUser  string `json:"candidate_user,omitempty"`
+	CandidateToken string `json:"candidate_token"`
+	ObserverToken  string `json:"observer_token"`
+	CandidatePort  int    `json:"candidate_port"`
+	ObserverPort   int    `json:"observer_port"`
+	CandidateURL   string `json:"candidate_url"`
+	ObserverURL    string `json:"observer_url"`
+	// AppToken and AppURL are set only for a problem that declares an app.
+	// The candidate and the observer share this one: it serves the same
+	// broken app to both, and there is nothing to tell apart.
+	AppToken  string    `json:"app_token,omitempty"`
+	AppURL    string    `json:"app_url,omitempty"`
+	AppPort   int       `json:"app_port,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 // Manager drives the live session for one engine. All process control
@@ -112,6 +120,10 @@ type StartOptions struct {
 	BaseURL        string
 	CandidateToken string
 	ObserverToken  string
+	// AppToken routes the candidate-facing app, for problems that declare
+	// one. Shared by candidate and observer: it serves the same broken app
+	// to both.
+	AppToken string
 	// CandidateUser owns the tmux server, which is what makes every pane
 	// that account's shell: a tmux server runs commands as its owner, so
 	// nothing the candidate types in the browser can run as the observer.
@@ -214,6 +226,20 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 		}
 	}
 	info.CandidateURL, info.ObserverURL = urls(opts.BaseURL, info)
+	app, err := m.appPlan()
+	if err != nil {
+		return nil, err
+	}
+	if app != nil {
+		info.AppPort = AppPort
+		info.AppToken = opts.AppToken
+		if info.AppToken == "" {
+			if info.AppToken, err = NewToken(); err != nil {
+				return nil, err
+			}
+		}
+		info.AppURL = appURL(opts.BaseURL, app.path, info)
+	}
 
 	r := m.Engine.Runner
 	create := []string{"new-session", "-d", "-s", name}
@@ -312,6 +338,22 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 		}
 	}
 
+	if app != nil && app.command != "" {
+		// The app is down for much of an interview by design, and
+		// kubectl port-forward exits when its pod goes, so the forwarder runs
+		// under a retry loop rather than dying with the first fault.
+		p, err := m.startProcess(ctx, "app-forward", "sh", "-c", app.command)
+		if p.pid != 0 {
+			started = append(started, p)
+		}
+		if err != nil {
+			// A missing app route is worth saying and not worth failing for:
+			// the interview is the terminal.
+			fmt.Fprintf(m.Out, "warning: app route unavailable: %v\n", err)
+			info.AppURL, info.AppToken, info.AppPort = "", "", 0
+		}
+	}
+
 	raw, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return fail(err)
@@ -321,7 +363,53 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 		return fail(err)
 	}
 	fmt.Fprintf(m.Out, "candidate: %s\nobserver:  %s\n", info.CandidateURL, info.ObserverURL)
+	if info.AppURL != "" {
+		fmt.Fprintf(m.Out, "app:       %s (the app under investigation; it is down while the faults are in)\n", info.AppURL)
+	}
 	return info, nil
+}
+
+// appRoute is how one scenario's app gets served on AppPort: a command to
+// run for kind, nothing for compose where the app already publishes the
+// port itself.
+type appRoute struct {
+	command string
+	path    string
+}
+
+// appPlan works out how to serve the candidate-facing app, or nil when the
+// problem declares none.
+func (m *Manager) appPlan() (*appRoute, error) {
+	spec := m.Engine.Scenario.Env.App
+	if spec == nil {
+		return nil, nil
+	}
+	port, err := m.Engine.RenderString(spec.Port)
+	if err != nil {
+		return nil, fmt.Errorf("app.port: %w", err)
+	}
+	route := &appRoute{path: spec.Path}
+	if m.Engine.ProviderName() != "kind" {
+		// Only kind for now: port-forward normalizes any service port onto
+		// one loopback port, which is what the fronting proxy and the printed
+		// URL both need. A compose app publishes a port the variant chose, and
+		// the host's Caddyfile is rendered before the variant is resolved.
+		// Validation rejects app: on a compose problem, so this is a scenario
+		// loaded past its own errors.
+		return nil, nil
+	}
+	ns, err := m.Engine.KindNamespace()
+	if err != nil {
+		return nil, err
+	}
+	svc, err := m.Engine.RenderString(spec.Service)
+	if err != nil {
+		return nil, fmt.Errorf("app.service: %w", err)
+	}
+	route.command = fmt.Sprintf(
+		"while :; do kubectl --kubeconfig %q -n %q port-forward --address 127.0.0.1 svc/%s %d:%s >/dev/null 2>&1; sleep 2; done",
+		m.Engine.KubeconfigPath(), ns, svc, AppPort, port)
+	return route, nil
 }
 
 // CandidateDir is the directory a local candidate pane opens in.
@@ -506,6 +594,20 @@ func urls(baseURL string, info *Info) (candidate, observer string) {
 	return base + "/c/" + info.CandidateToken, base + "/o/" + info.ObserverToken
 }
 
+// appURL is where the candidate opens the app under investigation. Locally
+// that is the forwarded port; on a host it is a token route like the
+// terminals, so a stray scan cannot find it.
+func appURL(baseURL, path string, info *Info) string {
+	if info.AppPort == 0 {
+		return ""
+	}
+	base := fmt.Sprintf("http://127.0.0.1:%d", info.AppPort)
+	if baseURL != "" {
+		base = strings.TrimRight(baseURL, "/") + "/a/" + info.AppToken
+	}
+	return base + path
+}
+
 // proc is a background process Start launched, tracked so a failure part
 // way through can stop what already came up.
 type proc struct {
@@ -573,6 +675,12 @@ func (m *Manager) Stop(ctx context.Context) error {
 	// teardown report it as something worth keeping.
 	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(m.Out, "leftover %s: %v\n", pidsDir, err)
+	}
+	// The candidate kubeconfig is a credential for a cluster that is about
+	// to be destroyed, and nothing reads it after the session. Teardown
+	// listing it as evidence to keep is worse than useless.
+	if err := os.Remove(filepath.Join(m.Engine.Workdir, KubeconfigFile)); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(m.Out, "leftover %s: %v\n", KubeconfigFile, err)
 	}
 	m.killSession(ctx, socket)
 	fmt.Fprintf(m.Out, "session %s stopped; taking the final evidence pass\n", m.Engine.EnvName())

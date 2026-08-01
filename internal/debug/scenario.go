@@ -104,6 +104,19 @@ func LoadScenario(p *content.Problem) (*Scenario, []content.Issue) {
 		}
 	}
 	issues = append(issues, requireExecutable(p.FS, env.Verify, "verify")...)
+	if app := env.App; app != nil {
+		if app.Port == "" {
+			addIssue(EnvManifest, "app.port: required, since it is what the candidate's browser reaches")
+		}
+		switch env.Provider {
+		case "kind":
+			if app.Service == "" {
+				addIssue(EnvManifest, "app.service: required on kind, to know what to forward to")
+			}
+		case "compose":
+			addIssue(EnvManifest, "app: kind only for now; a compose app publishes a port the variant chose, and the fronting proxy is configured before the variant is resolved")
+		}
+	}
 
 	issues = append(issues, s.loadFaults()...)
 	issues = append(issues, s.checkPacks()...)

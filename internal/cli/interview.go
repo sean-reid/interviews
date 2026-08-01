@@ -102,7 +102,7 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
 	}
-	rec.CandidateURL, rec.ObserverURL = info.CandidateURL, info.ObserverURL
+	rec.CandidateURL, rec.ObserverURL, rec.AppURL = info.CandidateURL, info.ObserverURL, info.AppURL
 	if err := interview.Save(rec); err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
@@ -341,7 +341,10 @@ func sessionState(s *interview.Session) string {
 	case len(st.Injected) == 0:
 		return "healthy"
 	default:
-		return "broken"
+		// What the state file knows is which faults went in, not which are
+		// still there: reading that needs the check scripts, and a listing
+		// must not run seven of them per session.
+		return fmt.Sprintf("%d injected", len(st.Injected))
 	}
 }
 

@@ -1287,3 +1287,157 @@ func TestEvidenceBundleCarriesNoCredentials(t *testing.T) {
 		t.Error("redacted the workdir copy, not just the bundle")
 	}
 }
+
+// appFixture adds an app declaration to the kind test scenario.
+func appFixture(m fstest.MapFS) {
+	m["env.yaml"] = &fstest.MapFile{Data: []byte(
+		"provider: kind\nkind:\n  manifests: env/manifests\n  namespace: shop\nverify: env/verify.sh\napp:\n  service: storefront\n  port: \"80\"\n  path: /shop\n")}
+}
+
+// A candidate debugging a frontend fault should be able to look at the
+// frontend. The forwarder normalizes any service port onto one loopback
+// port, which is what the fronting proxy and the printed URL both need.
+func TestStartServesTheAppOnKind(t *testing.T) {
+	m, r, out := testManager(t, appFixture)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	info, err := m.Start(context.Background(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AppPort != AppPort {
+		t.Errorf("app port = %d, want %d", info.AppPort, AppPort)
+	}
+	if want := fmt.Sprintf("http://127.0.0.1:%d/shop", AppPort); info.AppURL != want {
+		t.Errorf("app url = %q, want %q", info.AppURL, want)
+	}
+	forwards := r.callsMatching("port-forward")
+	if len(forwards) != 1 {
+		t.Fatalf("port-forward calls = %v, want one", forwards)
+	}
+	for _, want := range []string{
+		"svc/storefront " + strconv.Itoa(AppPort) + ":80",
+		"-n \"shop\"",
+		"--address 127.0.0.1",
+		// The app is down for much of an interview by design and kubectl
+		// port-forward exits with its pod, so it has to come back by itself.
+		"while :;",
+	} {
+		if !strings.Contains(forwards[0], want) {
+			t.Errorf("forwarder %q missing %q", forwards[0], want)
+		}
+	}
+	if !strings.Contains(out.String(), "app:") {
+		t.Errorf("start did not print the app URL: %q", out.String())
+	}
+
+	// The URL survives in the record, since it is printed once.
+	saved, err := LoadInfo(m.Engine.Workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AppURL != info.AppURL || saved.AppToken == "" {
+		t.Errorf("session.json lost the app route: %+v", saved)
+	}
+}
+
+// On a host the app is a token route like the terminals, so a scan of the
+// hostname does not find it.
+func TestAppURLIsATokenRouteBehindAProxy(t *testing.T) {
+	m, _, _ := testManager(t, appFixture)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	info, err := m.Start(context.Background(), StartOptions{
+		BaseURL: "https://1.2.3.4.sslip.io/", AppToken: strings.Repeat("a", 32),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://1.2.3.4.sslip.io/a/" + strings.Repeat("a", 32) + "/shop"; info.AppURL != want {
+		t.Errorf("app url = %q, want %q", info.AppURL, want)
+	}
+}
+
+// A problem with nothing worth opening in a browser gets no route and no
+// URL, rather than one that never answers.
+func TestNoAppMeansNoRoute(t *testing.T) {
+	m, r, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	info, err := m.Start(context.Background(), StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.AppURL != "" || info.AppPort != 0 || info.AppToken != "" {
+		t.Errorf("app route invented for a problem without one: %+v", info)
+	}
+	if got := r.callsMatching("port-forward"); len(got) != 0 {
+		t.Errorf("forwarded anyway: %v", got)
+	}
+	if strings.Contains(out.String(), "app:") {
+		t.Errorf("printed an app URL: %q", out.String())
+	}
+}
+
+// A forwarder that will not start is worth saying and not worth failing
+// for: the interview is the terminal.
+func TestStartSurvivesAForwarderThatWillNotStart(t *testing.T) {
+	m, r, out := testManager(t, appFixture)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	r.failStart["port-forward"] = errors.New("no kubectl here")
+
+	info, err := m.Start(context.Background(), StartOptions{})
+	if err != nil {
+		t.Fatalf("start failed over the app route: %v", err)
+	}
+	if info.AppURL != "" {
+		t.Errorf("kept an app URL nothing serves: %q", info.AppURL)
+	}
+	if !strings.Contains(out.String(), "app route unavailable") {
+		t.Errorf("said nothing about the missing route: %q", out.String())
+	}
+	if got := r.callsMatching("ttyd"); len(got) == 0 {
+		t.Error("the terminals did not come up")
+	}
+}
+
+// The timeline answers when the app came back, which is not the same
+// question as whether every check passes.
+func TestTimelineSamplesTheApp(t *testing.T) {
+	m, _, _ := testManager(t, appFixture)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.TimelineTick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(m.Engine.Workdir, TimelineFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"app"`) {
+		t.Errorf("timeline has no app sample:\n%s", raw)
+	}
+}
+
+// The candidate kubeconfig is a credential for a cluster about to be
+// destroyed, and teardown lists whatever is left in the workdir as evidence
+// worth keeping.
+func TestStopRemovesTheCandidateKubeconfig(t *testing.T) {
+	m, _, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	kube := filepath.Join(m.Engine.Workdir, KubeconfigFile)
+	if err := os.WriteFile(kube, []byte("token: sa-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(kube); !os.IsNotExist(err) {
+		t.Errorf("credential survived the session: %v", err)
+	}
+}

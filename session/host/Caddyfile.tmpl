@@ -1,7 +1,8 @@
 # Rendered to /etc/caddy/Caddyfile by provision.sh. Caddy terminates
 # TLS for the sslip.io hostname; the secret path tokens are the only
-# routes to the two ttyd endpoints. The upstream ports are fixed here and
-# must match CandidatePort and ObserverPort in internal/session.
+# routes to the two ttyd endpoints and the app. The upstream ports are
+# fixed here and must match CandidatePort, ObserverPort, and AppPort in
+# internal/session.
 ${HOSTNAME_FQDN} {
 	handle_path /c/${IV_CANDIDATE_TOKEN}* {
 		reverse_proxy 127.0.0.1:8001
@@ -9,6 +10,13 @@ ${HOSTNAME_FQDN} {
 
 	handle_path /o/${IV_OBSERVER_TOKEN}* {
 		reverse_proxy 127.0.0.1:8002
+	}
+
+	# The app is down for much of an interview by design, so this route 502s
+	# and that is not a fault. The health check below must never depend on
+	# it: the TTL watchdog reads /healthz to decide the host is alive.
+	handle_path /a/${IV_APP_TOKEN}* {
+		reverse_proxy 127.0.0.1:8003
 	}
 
 	handle /healthz {

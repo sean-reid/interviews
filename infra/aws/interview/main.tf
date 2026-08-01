@@ -34,6 +34,13 @@ resource "random_password" "observer_token" {
   special = false
 }
 
+# The candidate and the observer share the app route: it serves the same
+# broken app to both, so there is nothing to tell apart.
+resource "random_password" "app_token" {
+  length  = 32
+  special = false
+}
+
 locals {
   # The EIP exists before the instance, so the sslip.io hostname is
   # known at user-data render time; the association happens after boot.
@@ -137,6 +144,7 @@ resource "aws_instance" "session" {
       seed                = var.seed
       candidate_token     = random_password.candidate_token.result
       observer_token      = random_password.observer_token.result
+      app_token           = random_password.app_token.result
       ttl_minutes         = var.ttl_minutes
       hostname            = local.hostname
       evidence_bucket     = var.evidence_bucket

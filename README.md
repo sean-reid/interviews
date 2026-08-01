@@ -58,6 +58,11 @@ The fault timeline is a foreground sampler, so it is the one piece `start` canno
 do for you. Run `interviews session timeline <problem> --for 70m` in its own
 window if you want it; the timeline in the evidence is empty without it.
 
+On a problem that declares an app, `start` also prints a URL for the app itself,
+so a candidate debugging a frontend can look at the frontend. It is down for much
+of an interview by design: the route is expected to fail while the faults are in,
+and the timeline records when it came back.
+
 `interviews sessions` lists what is running and what ended, with the state read
 from each environment rather than from the record. `interviews sessions show`
 prints one session in full, for when the URLs have been lost.

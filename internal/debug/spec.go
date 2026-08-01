@@ -48,6 +48,23 @@ type EnvSpec struct {
 	// Verify is the health-check script: exit 0 iff the app works end to
 	// end. It defines what "fixed" means for the whole scenario.
 	Verify string `yaml:"verify"`
+	// App is the candidate-facing surface, when the problem has one worth
+	// opening in a browser. Optional: a queue worker has nothing to show.
+	App *AppSpec `yaml:"app,omitempty"`
+}
+
+// AppSpec declares what a candidate can reach in a browser. On kind the
+// session forwards to a service; on compose the app already publishes a
+// host port and the session only routes to it. Port is rendered as a
+// template, because a scenario that varies its port varies it here too.
+type AppSpec struct {
+	// Service is the kubernetes service to forward to. Kind only.
+	Service string `yaml:"service,omitempty"`
+	// Port is the service port on kind, the published host port on compose.
+	Port string `yaml:"port"`
+	// Path is appended to the candidate's app URL, for an app whose entry
+	// point is not the root.
+	Path string `yaml:"path,omitempty"`
 }
 
 // KindSpec configures the kind provider.

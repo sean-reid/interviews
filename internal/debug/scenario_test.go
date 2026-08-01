@@ -250,3 +250,19 @@ func TestPackCoverageRules(t *testing.T) {
 			string(m["problem.yaml"].Data), "fault_pack", "some_other", 1))}
 	}, "need this choice parameter")
 }
+
+// An app declaration has to say enough to be served, and only kind can be
+// served for now, so a compose problem declaring one has to hear about it
+// at validate time rather than at session start.
+func TestValidateAppDeclaration(t *testing.T) {
+	kindEnv := "provider: kind\nkind:\n  manifests: env/manifests\n  namespace: shop\nverify: env/verify.sh\n"
+	for _, tc := range []struct{ env, want string }{
+		{kindEnv + "app:\n  port: \"80\"\n", "app.service"},
+		{kindEnv + "app:\n  service: frontend\n", "app.port"},
+	} {
+		env := tc.env
+		wantScenarioIssue(t, func(m fstest.MapFS) {
+			m["env.yaml"] = &fstest.MapFile{Data: []byte(env)}
+		}, tc.want)
+	}
+}

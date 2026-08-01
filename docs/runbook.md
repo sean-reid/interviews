@@ -55,6 +55,14 @@ interviews grade hint relay "asked what the health endpoint returns" \
   --seed calm-bison-0731 --minute 9 --workdir ~/interviews/calm-bison-0731
 ```
 
+## The app route
+
+On a problem that declares an app, `terraform output -raw app_url` is a third
+token route, shared by candidate and observer because it serves the same broken
+app to both. Expect it to fail for much of the session: that is the app being
+broken, not the host. Caddy's `/healthz` does not touch it, so the TTL watchdog
+keeps working while the app is down.
+
 ## The two accounts
 
 The candidate URL is a shell on the `candidate` account, which owns the tmux

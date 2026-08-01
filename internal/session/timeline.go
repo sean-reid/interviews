@@ -22,6 +22,14 @@ type verifySample struct {
 	Verify bool   `json:"verify"`
 }
 
+// appSample is whether the candidate's app URL answered at one instant.
+// Grading reads it to see when the app came back, which is not the same
+// question as whether every check passes.
+type appSample struct {
+	T   string `json:"t"`
+	App bool   `json:"app"`
+}
+
 // TimelineTick samples every injected fault's check plus the end-to-end
 // verify once and appends the results to workdir/timeline.jsonl. The
 // timeline is the provider-agnostic record of when each fault flipped;
@@ -55,6 +63,11 @@ func (m *Manager) TimelineTick(ctx context.Context) (err error) {
 	verified := m.Engine.Verify(ctx) == nil
 	if err := enc.Encode(verifySample{T: now, Verify: verified}); err != nil {
 		return err
+	}
+	if info, ierr := LoadInfo(m.Engine.Workdir); ierr == nil && info.AppPort != 0 {
+		if err := enc.Encode(appSample{T: now, App: m.dial(info.AppPort) == nil}); err != nil {
+			return err
+		}
 	}
 	// The checks and verify print as they run, so a sample that says nothing
 	// leaves that output looking like a failure.

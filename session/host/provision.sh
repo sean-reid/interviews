@@ -86,7 +86,7 @@ set -a
 # shellcheck source=/dev/null
 . /etc/interviews/session.env
 set +a
-HOSTNAME_FQDN="$HOSTNAME_FQDN" envsubst '${HOSTNAME_FQDN} ${IV_CANDIDATE_TOKEN} ${IV_OBSERVER_TOKEN}' \
+HOSTNAME_FQDN="$HOSTNAME_FQDN" envsubst '${HOSTNAME_FQDN} ${IV_CANDIDATE_TOKEN} ${IV_OBSERVER_TOKEN} ${IV_APP_TOKEN}' \
   </opt/interviews/session/host/Caddyfile.tmpl >/etc/caddy/Caddyfile
 
 systemctl daemon-reload

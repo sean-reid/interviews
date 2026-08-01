@@ -48,6 +48,7 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 	baseURL := fs.String("base-url", "", "public base URL fronting the ttyd ports")
 	candTok := fs.String("candidate-token", "", "candidate URL token (default: random)")
 	obsTok := fs.String("observer-token", "", "observer URL token (default: random)")
+	appTok := fs.String("app-token", "", "app URL token, for a problem that declares an app (default: random)")
 	candUser := fs.String("candidate-user", "",
 		"account owning the tmux server, so the candidate's panes are its shells (default: this account)")
 	socket := fs.String("tmux-socket", "", "tmux server socket path, required with --candidate-user")
@@ -65,7 +66,7 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	opts := session.StartOptions{
-		BaseURL: *baseURL, CandidateToken: *candTok, ObserverToken: *obsTok,
+		BaseURL: *baseURL, CandidateToken: *candTok, ObserverToken: *obsTok, AppToken: *appTok,
 		CandidateUser: *candUser, TmuxSocket: *socket, CandidateKubeconfig: *candKube,
 	}
 	if _, err := m.Start(context.Background(), opts); err != nil {

@@ -7,6 +7,7 @@ IV_PROBLEM=${problem}
 IV_SEED=${seed}
 IV_CANDIDATE_TOKEN=${candidate_token}
 IV_OBSERVER_TOKEN=${observer_token}
+IV_APP_TOKEN=${app_token}
 IV_TTL_MINUTES=${ttl_minutes}
 IV_HOSTNAME=${hostname}
 IV_EVIDENCE_S3=s3://${evidence_bucket}/${seed}

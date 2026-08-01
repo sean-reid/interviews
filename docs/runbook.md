@@ -3,6 +3,24 @@
 One disposable EC2 host per interview: broken environment, shared recorded
 terminal, TTL self-destruct. Evidence outlives the host in S3.
 
+## Testing a host without provisioning one
+
+`session/host/offline-test.sh` runs the whole of provision.sh in a container,
+offline, in about two minutes, and then checks what it left behind: the two
+accounts and that the candidate cannot read the content, the unpacked platform,
+the sudoers syntax, the rendered Caddyfile with its tokens and no placeholders,
+and the order the units would start in. CI runs it on every change.
+
+Use it before provisioning anything. Both bugs that reached a real host, a
+package that does not exist on this release and a docker without its compose
+plugin, would have failed there first, and a real provision takes a quarter of
+an hour to tell you.
+
+What it cannot cover is the units actually running, since a container has no
+systemd: the environment build, the fault injection, and the session stack with
+its two accounts. For those, provision a host and read
+`interviews sessions log --follow`.
+
 ## The AWS identity terraform runs as
 
 Make a dedicated IAM user for this rather than using your own. Everything the

@@ -23,7 +23,7 @@ func TestBundleCommand(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "wrote bundle") {
+	if !strings.Contains(stdout, "bundle:  ") {
 		t.Errorf("stdout = %q", stdout)
 	}
 	if _, err := os.Stat(filepath.Join(out, "ABOUT.md")); err != nil {
@@ -71,7 +71,7 @@ func TestBundleCommandSysDesign(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "wrote bundle") {
+	if !strings.Contains(stdout, "bundle:  ") {
 		t.Errorf("stdout = %q", stdout)
 	}
 	about, err := os.ReadFile(filepath.Join(out, "ABOUT.md"))
@@ -139,9 +139,16 @@ func TestBundleCommandErrors(t *testing.T) {
 		!strings.Contains(stderr, "no problem") {
 		t.Errorf("unknown problem: exit %d, stderr %q", code, stderr)
 	}
-	if code, _, _ := run(t, "bundle", "--content", goodRoot, "slow-aligner",
-		"-o", filepath.Join(dir, "c")); code != 2 {
-		t.Errorf("missing --seed: exit %d, want 2", code)
+	// No --seed is not an error: one gets generated and recorded, which is the
+	// whole point of the registry.
+	if code, stdout, stderr := run(t, "bundle", "--content", goodRoot, "slow-aligner",
+		"-o", filepath.Join(dir, "c")); code != 0 || !strings.Contains(stdout, "session ") {
+		t.Errorf("no --seed: exit %d, stdout %q stderr %q", code, stdout, stderr)
+	}
+	if code, _, stderr := run(t, "bundle", "--content", goodRoot, "slow-aligner",
+		"--seed", "Not A Seed", "-o", filepath.Join(dir, "d")); code != 2 ||
+		!strings.Contains(stderr, "seed") {
+		t.Errorf("bad seed: exit %d, stderr %q", code, stderr)
 	}
 	if code, _, _ := run(t, "bundle", "--content", goodRoot, "slow-aligner",
 		"--seed", "s"); code != 2 {

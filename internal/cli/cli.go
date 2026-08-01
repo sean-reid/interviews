@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/version"
 )
 
@@ -20,6 +21,9 @@ Running an interview:
   start      build an environment, break it, and open a recorded terminal
   hint       log a hint against the running session
   end        stop the session, keep the evidence, tear the environment down
+  sent       mark an offline interview as handed to the candidate
+  returned   record where a submission landed
+  reviewed   mark the live review done
   sessions   what is running, what ended, and the URLs for each
   grade      sheet | score | hint: rubric-first grading artifacts
   bundle     write a take-home or system design bundle (dir or .tar.gz)
@@ -62,6 +66,9 @@ func init() {
 		"start":     cmdStart,
 		"end":       cmdEnd,
 		"hint":      cmdHint,
+		"sent":      cmdStage(interview.Sent),
+		"returned":  cmdStage(interview.Returned),
+		"reviewed":  cmdStage(interview.Reviewed),
 		"sessions":  cmdSessions,
 		"list":      cmdList,
 		"describe":  cmdDescribe,

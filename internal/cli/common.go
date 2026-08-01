@@ -56,7 +56,7 @@ var synopses = map[string]string{
 	"describe": `interviews describe <problem-id> [--seed id] [--json]`,
 	"validate": `interviews validate [--content dir]`,
 	"grade":    `interviews grade sheet|score|hint <problem-id> [--seed id]`,
-	"bundle":   `interviews bundle <problem-id> --seed <id> -o <dir|file.tar.gz>`,
+	"bundle":   `interviews bundle <problem-id> -o <dir|file.tar.gz> [--seed id] [--level LEVEL] [--due 120h]`,
 	"env":      `interviews env up|verify|down <problem-id> [--seed id] [--set k=v] [--purge]`,
 	"break":    `interviews break <problem-id> [--seed id] [--set k=v]`,
 	"fault":    `interviews fault status|fix <problem-id> [fault-id] [--seed id]`,
@@ -64,6 +64,9 @@ var synopses = map[string]string{
 	"session":  `interviews session start|stop|evidence|timeline|kubeconfig <problem-id> [--seed id]`,
 	"redteam":  `interviews redteam <problem-id> [--pack name] | interviews redteam ledger`,
 	"config":   `interviews config | interviews config set content <path> | interviews config unset content`,
+	"sent":     `interviews sent [--seed id]`,
+	"returned": `interviews returned <path to the submission> [--seed id]`,
+	"reviewed": `interviews reviewed [--seed id]`,
 	"doctor":   `interviews doctor`,
 	"version":  `interviews version`,
 

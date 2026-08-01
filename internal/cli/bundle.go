@@ -3,24 +3,46 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
+	"time"
 
 	"github.com/sean-reid/interviews/internal/bundle"
+	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/registry"
 	"github.com/sean-reid/interviews/internal/variant"
 )
 
 func cmdBundle(args []string, stdout, stderr io.Writer) int {
 	fs, contentRoot := newFlagSet("bundle", stderr)
-	seed := fs.String("seed", "", "interview id selecting the variant")
+	seedFlag := fs.String("seed", "", "interview id selecting the variant (default: a new one)")
 	outPath := fs.String("o", "", "output directory, or a .tar.gz/.tgz path")
+	levelFlag := fs.String("level", "", "level this interview is calibrated for")
+	dueFlag := fs.Duration("due", 0, "how long the candidate has, recorded with the session")
 	var sets repeatedFlag
 	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
 		return 2
 	}
-	if len(pos) != 1 || *seed == "" || *outPath == "" {
-		fmt.Fprintln(stderr, "usage: interviews bundle <problem-id> --seed <id> [--set k=v] -o <dir|out.tar.gz>")
+	if len(pos) != 1 || *outPath == "" {
+		return usageErr("bundle", stderr)
+	}
+	level, err := parseLevel(*levelFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
+		return 2
+	}
+	// A generated seed that nothing records is the seed-you-have-to-keep
+	// problem the registry exists to remove, so bundling registers the
+	// session it just handed out.
+	seed := *seedFlag
+	if seed == "" {
+		if seed, err = interview.NewSeed(time.Now()); err != nil {
+			fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
+			return 1
+		}
+	} else if err := interview.ValidSeed(seed); err != nil {
+		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
 		return 2
 	}
 	overrides, err := parseOverrides(sets)
@@ -51,7 +73,7 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
-	v, err := variant.Resolve(pos[0], entry.Problem.Manifest.Params, *seed, overrides)
+	v, err := variant.Resolve(pos[0], entry.Problem.Manifest.Params, seed, overrides)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
 		return 1
@@ -60,6 +82,29 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "wrote bundle for %s (seed %s) to %s\n", pos[0], *seed, *outPath)
+	abs, err := filepath.Abs(*outPath)
+	if err != nil {
+		abs = *outPath
+	}
+	rec := &interview.Session{
+		Seed: seed, Problem: pos[0], Type: entry.Type, Level: level,
+		Mode: interview.Offline, Stage: interview.Created,
+		CreatedAt: time.Now(), BundlePath: abs, Evidence: abs,
+	}
+	if *dueFlag > 0 {
+		rec.DueAt = rec.CreatedAt.Add(*dueFlag)
+	}
+	if root, aerr := filepath.Abs(*contentRoot); aerr == nil {
+		rec.ContentRoot = root
+	}
+	if err := interview.Save(rec); err != nil {
+		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "session %s: %s\nbundle:  %s\n", seed, pos[0], abs)
+	if !rec.DueAt.IsZero() {
+		fmt.Fprintf(stdout, "due:     %s\n", rec.DueAt.Format("Mon 2 Jan 15:04"))
+	}
+	fmt.Fprintf(stdout, "\nsend it, then: interviews sent\n")
 	return 0
 }

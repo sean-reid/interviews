@@ -283,9 +283,20 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 	if rec.Level != "" {
 		rows = append(rows, [2]string{"level", string(rec.Level)})
 	}
+	if !rec.DueAt.IsZero() {
+		rows = append(rows, [2]string{"due", rec.DueAt.Format(time.RFC1123)})
+	}
 	if !rec.EndedAt.IsZero() {
 		rows = append(rows, [2]string{"ended", rec.EndedAt.Format(time.RFC1123)})
 	}
+	if !rec.ReviewedAt.IsZero() {
+		rows = append(rows, [2]string{"reviewed", rec.ReviewedAt.Format(time.RFC1123)})
+	}
+	// The two questions asked of an offline session weeks later: where did the
+	// bundle go, and where did their submission land.
+	rows = append(rows,
+		[2]string{"bundle", rec.BundlePath},
+		[2]string{"submission", rec.SubmissionPath})
 	rows = append(rows,
 		[2]string{"candidate url", rec.CandidateURL},
 		[2]string{"observer url", rec.ObserverURL})
@@ -328,9 +339,14 @@ func currentOr(seed string, stderr io.Writer) (*interview.Session, error) {
 	return rec, nil
 }
 
-// sessionState is derived, never trusted from the record: a session whose
-// state file is gone is over whether or not anyone ran end.
+// sessionState says where a session is. For debugging it is derived from the
+// workdir and never trusted from the record, because a session whose state
+// file is gone is over whether or not anyone ran end. For the offline types
+// there is no substrate to read, so the recorded stage is the answer.
 func sessionState(s *interview.Session) string {
+	if s.Mode == interview.Offline {
+		return offlineState(s)
+	}
 	if !s.EndedAt.IsZero() {
 		return "ended"
 	}
@@ -417,4 +433,89 @@ func warnLevelUnsupported(contentRoot, problemID string, level taxonomy.Level, s
 		fmt.Fprintf(stderr, "warning: %s grades %v, not %s\n", problemID, entry.Problem.Manifest.Levels, level)
 	}
 	return nil
+}
+
+// offlineState reads the stage, and says what it is waiting on: a list of
+// take-homes is being asked which ones need the interviewer, not which ones
+// exist.
+func offlineState(s *interview.Session) string {
+	switch s.Stage {
+	case interview.Returned:
+		return "returned, to review"
+	case interview.Reviewed:
+		return "reviewed"
+	case interview.Sent:
+		if !s.DueAt.IsZero() && time.Now().After(s.DueAt) {
+			return "overdue by " + age(time.Since(s.DueAt))
+		}
+		if !s.DueAt.IsZero() {
+			return "sent, due in " + age(time.Until(s.DueAt))
+		}
+		return "sent"
+	case interview.Created:
+		return "not sent"
+	default:
+		return string(s.Stage)
+	}
+}
+
+// cmdStage moves an offline interview along. Three one-word commands,
+// because these are the ones that get forgotten: a take-home that came back
+// and was never marked is a take-home nobody is waiting on.
+func cmdStage(stage interview.Stage) command {
+	return func(args []string, stdout, stderr io.Writer) int {
+		name := string(stage)
+		fs := newBareFlagSet(name, stderr)
+		seedFlag := fs.String("seed", "", "session to mark (default: the current one)")
+		pos, err := parsePermuted(fs, args)
+		if err != nil {
+			return 2
+		}
+		// returned takes the submission path, since that is what grading reads.
+		wantPath := stage == interview.Returned
+		if (wantPath && len(pos) != 1) || (!wantPath && len(pos) != 0) {
+			return usageErr(name, stderr)
+		}
+		rec, err := currentOr(*seedFlag, stderr)
+		if err != nil {
+			fmt.Fprintf(stderr, "interviews %s: %v\n", name, err)
+			return 1
+		}
+		if rec.Mode != interview.Offline {
+			fmt.Fprintf(stderr, "interviews %s: %s is a %s session, which has no stages; use interviews end\n",
+				name, rec.Seed, rec.Mode)
+			return 1
+		}
+		if wantPath {
+			abs, err := filepath.Abs(pos[0])
+			if err != nil {
+				fmt.Fprintf(stderr, "interviews %s: %v\n", name, err)
+				return 1
+			}
+			if _, err := os.Stat(abs); err != nil {
+				fmt.Fprintf(stderr, "interviews %s: %v\n", name, err)
+				return 1
+			}
+			rec.SubmissionPath = abs
+		}
+		rec.Stage = stage
+		if stage == interview.Reviewed {
+			// The review is the end of an offline interview, so it leaves the
+			// open list the way a torn-down environment does.
+			rec.ReviewedAt = time.Now()
+			rec.EndedAt = rec.ReviewedAt
+		}
+		if err := interview.Save(rec); err != nil {
+			fmt.Fprintf(stderr, "interviews %s: %v\n", name, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s: %s\n", rec.Seed, offlineState(rec))
+		switch stage {
+		case interview.Sent:
+			fmt.Fprintf(stdout, "when it comes back: interviews returned <path>\n")
+		case interview.Returned:
+			fmt.Fprintf(stdout, "grade it: interviews grade sheet %s --seed %s -o sheet.md\n", rec.Problem, rec.Seed)
+		}
+		return 0
+	}
 }

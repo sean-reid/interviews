@@ -28,13 +28,49 @@ aws iam put-user-policy --user-name interviews-terraform   --policy-name intervi
 aws iam create-access-key --user-name interviews-terraform
 ```
 
-Put the key in a named profile and point terraform at it with
-`AWS_PROFILE=interviews`, so it is never your default identity:
+Put the key in a named profile so it is never your default identity, and pick a
+name nothing else uses:
 
 ```sh
-aws configure --profile interviews        # paste the key and the region
-export AWS_PROFILE=interviews
-aws sts get-caller-identity              # says interviews-terraform
+aws configure --profile interviews-personal   # paste the key and the region
+export AWS_PROFILE=interviews-personal
+aws sts get-caller-identity                   # check the account is the one you meant
+```
+
+Check that last line rather than assume it. A profile name that collides with an
+SSO profile you already have shadows it silently, and the failure mode is
+terraform building an interview host in someone else's account. If your
+organisation manages `~/.aws/config` with a tool, keep `region` in the
+credentials file entry instead, or a regeneration will drop it.
+
+The policy pins a region, so provisioning somewhere else fails with
+`UnauthorizedOperation` until you update it. That is deliberate: a typo in
+`-var region=` cannot quietly build a host on the other side of the world.
+
+After editing the policy, re-attach it. The file in this repository and the
+policy on the user are separate things, and a stale attachment is invisible
+until something is denied:
+
+```sh
+aws iam put-user-policy --user-name interviews-terraform \
+  --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
+```
+
+The policy has been run end to end against a real account: it creates the
+bucket, provisions a host with its role and instance profile, and destroys all
+of it. Four actions were missing when it was written from reading the modules,
+which is worth knowing if you extend them. A data source reads attributes as
+well as resources, and the console actions are there for operability rather
+than for terraform: a host has no ssh, so `ec2:GetConsoleOutput` is the only
+way to see one fail from outside.
+
+You can check an attachment without provisioning anything. A call that comes
+back `NoSuchEntity` was permitted; one that comes back `AccessDenied` was not:
+
+```sh
+aws iam get-role --role-name iv-probe-does-not-exist   # NoSuchEntity: allowed
+aws iam get-role --role-name SomeOtherRole             # AccessDenied: correctly scoped
+aws ec2 describe-vpcs --region <another-region>        # AccessDenied: region lock works
 ```
 
 What the policy allows, and why each part is there:

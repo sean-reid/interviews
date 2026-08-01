@@ -14,6 +14,7 @@
       "Effect": "Allow",
       "Action": [
         "ec2:DescribeVpcs",
+        "ec2:DescribeVpcAttribute",
         "ec2:DescribeSubnets",
         "ec2:DescribeAvailabilityZones",
         "ec2:DescribeImages",
@@ -56,7 +57,10 @@
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeTags",
         "ec2:CreateTags",
-        "ec2:DeleteTags"
+        "ec2:DeleteTags",
+        "ec2:DescribeIamInstanceProfileAssociations",
+        "ec2:GetConsoleOutput",
+        "ec2:GetConsoleScreenshot"
       ],
       "Resource": "*",
       "Condition": {
@@ -86,7 +90,9 @@
         "iam:TagInstanceProfile",
         "iam:UntagInstanceProfile",
         "iam:AddRoleToInstanceProfile",
-        "iam:RemoveRoleFromInstanceProfile"
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:ListRoleTags",
+        "iam:ListInstanceProfileTags"
       ],
       "Resource": [
         "arn:aws:iam::ACCOUNT_ID:role/iv-*",
@@ -107,7 +113,7 @@
       }
     },
     {
-      "Sid": "EvidenceBucket",
+      "Sid": "EvidenceBucketOnlyThisOne",
       "Effect": "Allow",
       "Action": [
         "s3:*"
@@ -116,19 +122,6 @@
         "arn:aws:s3:::BUCKET",
         "arn:aws:s3:::BUCKET/*"
       ]
-    },
-    {
-      "Sid": "CreateTheEvidenceBucketOnce",
-      "Effect": "Allow",
-      "Action": [
-        "s3:CreateBucket"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestedRegion": "REGION"
-        }
-      }
     }
   ]
 }

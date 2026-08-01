@@ -39,6 +39,21 @@ jobs:
       - name: shellcheck
         run: shellcheck -S warning session/host/*.sh
 
+  # shellcheck cannot know whether a package exists on the release the host
+  # actually runs. A container is that release, and running the real script's
+  # prereqs phase in one catches a missing package before a host boots, runs,
+  # and serves nothing.
+  host-prereqs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: install what a session host needs
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: bash session/host/provision.sh --prereqs-only
+
   # The examples are the spec's worked problems, so they have to keep working:
   # a broken one is a wrong spec. Only the debugging toy needs a cluster.
   examples:

@@ -28,6 +28,10 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	seedFlag := fs.String("seed", "", "use this interview id instead of generating one")
 	levelFlag := fs.String("level", "", "level this interview is calibrated for; the sheet prints its band")
 	noBreak := fs.Bool("no-break", false, "leave the environment healthy (authoring)")
+	remote := fs.Bool("remote", false, "provision a disposable host instead of running here")
+	ttl := fs.Int("ttl", 120, "minutes before a provisioned host destroys itself")
+	instanceType := fs.String("instance-type", "", "EC2 instance type (default: the module's)")
+	infra := fs.String("infra", "", "path to the terraform modules")
 	baseURL := fs.String("base-url", "", "public base URL fronting the session ports")
 	var sets repeatedFlag
 	fs.Var(&sets, "set", "pin a parameter (name=value, repeatable)")
@@ -60,6 +64,18 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	// content is a checkout of its own now. Warn, never block: this is the
 	// command that runs with a candidate waiting.
 	warnStale(*contentRoot, stderr)
+
+	if *remote {
+		// The host builds its own environment from the bundle, so nothing local
+		// is needed beyond knowing the problem is real.
+		if err := warnLevelUnsupported(*contentRoot, problemID, level, stderr); err != nil {
+			fmt.Fprintf(stderr, "interviews start: %v\n", err)
+			return 1
+		}
+		return startRemote(problemID, seed, level, remoteOptions{
+			TTLMinutes: *ttl, InstanceType: *instanceType, Infra: *infra,
+		}, stdout, stderr)
+	}
 
 	// Build the engine before announcing anything: an unknown problem, a
 	// take-home, or a bad --set has to fail before a cluster exists.
@@ -143,6 +159,9 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
 		return 1
 	}
+	if rec.Mode == interview.AWS {
+		return endRemote(rec, stdout, stderr)
+	}
 	root := rec.ContentRoot
 	if root == "" || *contentRoot != DefaultContentRoot {
 		root = *contentRoot
@@ -221,6 +240,9 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "show" {
 		return sessionsShow(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "log" {
+		return sessionsLog(args[1:], stdout, stderr)
 	}
 	fs := newBareFlagSet("sessions", stderr)
 	all := fs.Bool("all", false, "include sessions that have ended")
@@ -349,6 +371,22 @@ func sessionState(s *interview.Session) string {
 	}
 	if !s.EndedAt.IsZero() {
 		return "ended"
+	}
+	if s.Mode == interview.AWS {
+		// A provisioned host has no workdir here to read, and asking EC2 per
+		// row would make a listing wait on the network. What the record knows
+		// is whether the provision got as far as an address.
+		if s.Host == "" {
+			return "provisioning"
+		}
+		if s.TTLMinutes > 0 {
+			left := time.Until(s.CreatedAt.Add(time.Duration(s.TTLMinutes) * time.Minute))
+			if left <= 0 {
+				return "past its ttl"
+			}
+			return "up, " + age(left) + " of ttl left"
+		}
+		return "up"
 	}
 	if s.Workdir == "" {
 		return "unknown"
@@ -518,4 +556,61 @@ func cmdStage(stage interview.Stage) command {
 		}
 		return 0
 	}
+}
+
+// sessionsLog prints what a provisioned host has said about its own boot.
+// There is no ssh and no console access, so the log the host uploads is the
+// only way to watch one come up, and --follow makes it a live view.
+func sessionsLog(args []string, stdout, stderr io.Writer) int {
+	fs := newBareFlagSet("sessions log", stderr)
+	seedFlag := fs.String("seed", "", "session to read (default: the current one)")
+	follow := fs.Bool("follow", false, "keep printing as the host says more")
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return 2
+	}
+	seed := *seedFlag
+	if len(pos) == 1 {
+		seed = pos[0]
+	}
+	rec, err := currentOr(seed, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews sessions log: %v\n", err)
+		return 1
+	}
+	if rec.Mode != interview.AWS {
+		fmt.Fprintf(stderr, "interviews sessions log: %s runs %s, and only a provisioned host reports a boot\n",
+			rec.Seed, rec.Mode)
+		return 1
+	}
+	cfg := interview.LoadConfig()
+	env := os.Environ()
+	if cfg.AWS != nil && cfg.AWS.Profile != "" {
+		env = append(env, "AWS_PROFILE="+cfg.AWS.Profile)
+	}
+	body, err := fetchProvisionLog(env, rec.Evidence)
+	if err != nil && body == "" {
+		fmt.Fprintf(stderr, "interviews sessions log: nothing uploaded yet for %s\n", rec.Seed)
+		fmt.Fprintf(stderr, "the host writes this at milestones, so a fresh provision has not reached one\n")
+		return 1
+	}
+	fmt.Fprint(stdout, body)
+	if !*follow {
+		return 0
+	}
+	seen := len(body)
+	deadline := time.Now().Add(bootTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(bootPoll)
+		next, err := fetchProvisionLog(env, rec.Evidence)
+		if err != nil || len(next) <= seen {
+			continue
+		}
+		fmt.Fprint(stdout, next[seen:])
+		seen = len(next)
+		if strings.Contains(next, "provisioning finished") {
+			return 0
+		}
+	}
+	return 0
 }

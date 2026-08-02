@@ -273,39 +273,48 @@ func packBundle(out io.Writer, infra, contentRoot, dest string) (string, error) 
 		_, err = tw.Write(body)
 		return err
 	}
-	if err := add(bin, "interviews", 0o755); err != nil {
-		return "", err
-	}
-	for _, tree := range []struct{ dir, prefix string }{
-		{filepath.Join(platform, "session", "host"), "session/host"},
-		{contentRoot, "content"},
-	} {
-		err := filepath.WalkDir(tree.dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			rel, err := filepath.Rel(tree.dir, p)
-			if err != nil {
-				return err
-			}
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			mode := int64(0o644)
-			if info.Mode()&0o111 != 0 {
-				mode = 0o755
-			}
-			return add(p, filepath.ToSlash(filepath.Join(tree.prefix, rel)), mode)
-		})
-		if err != nil {
-			return "", fmt.Errorf("packing %s: %w", tree.dir, err)
+	pack := func() error {
+		if err := add(bin, "interviews", 0o755); err != nil {
+			return err
 		}
+		for _, tree := range []struct{ dir, prefix string }{
+			{filepath.Join(platform, "session", "host"), "session/host"},
+			{contentRoot, "content"},
+		} {
+			err := filepath.WalkDir(tree.dir, func(p string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return err
+				}
+				rel, err := filepath.Rel(tree.dir, p)
+				if err != nil {
+					return err
+				}
+				info, err := d.Info()
+				if err != nil {
+					return err
+				}
+				mode := int64(0o644)
+				if info.Mode()&0o111 != 0 {
+					mode = 0o755
+				}
+				return add(p, filepath.ToSlash(filepath.Join(tree.prefix, rel)), mode)
+			})
+			if err != nil {
+				return fmt.Errorf("packing %s: %w", tree.dir, err)
+			}
+		}
+		return nil
 	}
+	// The chain closes on every path: a pack failure used to return with
+	// the tar, gzip and file writers all still open.
+	err = pack()
 	for _, c := range []io.Closer{tw, gz, f} {
-		if err := c.Close(); err != nil {
-			return "", err
+		if cerr := c.Close(); cerr != nil && err == nil {
+			err = cerr
 		}
+	}
+	if err != nil {
+		return "", err
 	}
 	info, err := os.Stat(dest)
 	if err != nil {

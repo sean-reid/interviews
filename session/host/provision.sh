@@ -7,6 +7,20 @@ set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
+# dpkg architecture -> the name release assets use. The AWS CLI and ttyd
+# both publish under it.
+asset_arch() {
+  arch=$(dpkg --print-architecture)
+  case "$arch" in
+    amd64) echo x86_64 ;;
+    arm64) echo aarch64 ;;
+    *)
+      echo "unsupported architecture: $arch" >&2
+      return 1
+      ;;
+  esac
+}
+
 # prereqs installs everything the host needs before any of it is configured:
 # the packages, the AWS CLI, and the pinned binaries. Nothing here touches
 # systemd or the network beyond fetching, and it is the phase where a package
@@ -34,30 +48,19 @@ prereqs() {
   # shellcheck disable=SC2086
   apt-get $apt_opts install -y --no-install-recommends \
     docker.io docker-compose-v2 tmux asciinema caddy curl ca-certificates \
-    unzip gettext-base sudo iptables
+    gettext-base sudo iptables
 
   arch=$(dpkg --print-architecture)
-  case "$arch" in
-    amd64) ttyd_arch=x86_64 ;;
-    arm64) ttyd_arch=aarch64 ;;
-    *)
-      echo "unsupported architecture: $arch" >&2
-      exit 1
-      ;;
-  esac
+  ttyd_arch=$(asset_arch)
 
   fetch_bin() { # url dest
     curl -fsSL "$1" -o "$2"
     chmod 0755 "$2"
   }
   # The evidence sync and the tarball fetch both need it, so it has to land
-  # before either.
-  if ! command -v aws >/dev/null 2>&1; then
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ttyd_arch}.zip" -o /tmp/awscliv2.zip
-    unzip -q -o /tmp/awscliv2.zip -d /tmp
-    /tmp/aws/install --update
-    rm -rf /tmp/aws /tmp/awscliv2.zip
-  fi
+  # before either. Same installer as the early attempt below: this is the
+  # retry for a bootstrap that could not fetch.
+  bootstrap_aws
 
   [ -x /usr/local/bin/kind ] ||
     fetch_bin "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-${arch}" /usr/local/bin/kind
@@ -108,14 +111,19 @@ milestone() {
 
 # The CLI is installed before anything else so the log below can be uploaded
 # from the very first milestone. curl and python3 are on the base image, which
-# is what makes this possible without apt.
+# is what makes this possible without apt. A private mktemp directory rather
+# than fixed /tmp names: the header says re-running is safe, and a re-run
+# once a candidate account exists must not execute anything it could have
+# planted there as root.
 bootstrap_aws() {
   command -v aws >/dev/null 2>&1 && return 0
-  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-  python3 -m zipfile -e /tmp/awscliv2.zip /tmp/
-  chmod +x /tmp/aws/install /tmp/aws/dist/aws
-  /tmp/aws/install --update
-  rm -rf /tmp/aws /tmp/awscliv2.zip
+  cli_arch=$(asset_arch) || return 1
+  dir=$(mktemp -d)
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${cli_arch}.zip" -o "$dir/awscliv2.zip"
+  python3 -m zipfile -e "$dir/awscliv2.zip" "$dir"
+  chmod +x "$dir/aws/install" "$dir/aws/dist/aws"
+  "$dir/aws/install" --update
+  rm -rf "$dir"
 }
 
 # Everything from here is logged, and the log is uploaded on the way out
@@ -221,12 +229,15 @@ install -d -o root -g iv-session -m 2770 /run/interviews/tmux
 install -d -o interviewer -g iv-session -m 2750 /run/interviews/kube
 
 mkdir -p /opt/interviews
+# mktemp, not a fixed /tmp name: on a re-run the candidate exists and a path
+# they can pre-create must never be what root unpacks.
+tarball=$(mktemp)
 case "$REPO_TARBALL_URL" in
-  s3://*) aws s3 cp "$REPO_TARBALL_URL" /tmp/interviews.tar.gz ;;
-  *) curl -fsSL "$REPO_TARBALL_URL" -o /tmp/interviews.tar.gz ;;
+  s3://*) aws s3 cp "$REPO_TARBALL_URL" "$tarball" ;;
+  *) curl -fsSL "$REPO_TARBALL_URL" -o "$tarball" ;;
 esac
-tar -xzf /tmp/interviews.tar.gz -C /opt/interviews
-rm -f /tmp/interviews.tar.gz
+tar -xzf "$tarball" -C /opt/interviews
+rm -f "$tarball"
 chown -R interviewer:interviewer /opt/interviews
 chmod 0700 /opt/interviews
 

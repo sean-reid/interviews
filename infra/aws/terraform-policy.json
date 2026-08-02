@@ -154,13 +154,25 @@
       "Action": [
         "logs:CreateLogGroup",
         "logs:DeleteLogGroup",
-        "logs:DescribeLogGroups",
         "logs:PutRetentionPolicy",
         "logs:ListTagsForResource",
         "logs:TagResource",
         "logs:UntagResource"
       ],
       "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/aws/lambda/iv-*"
+    },
+    {
+      "Sid": "ReadLogGroupsCannotBeScoped",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "REGION"
+        }
+      }
     },
     {
       "Sid": "EvidenceBucketCreateAndConfigure",

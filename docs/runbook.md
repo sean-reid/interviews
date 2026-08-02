@@ -206,8 +206,12 @@ costs seconds of recording and documents itself.
 ## After
 
 Evidence syncs to `s3://<bucket>/<seed>/evidence.tar.gz` every two minutes:
-the recording, the fault timeline, and the score. On a host the candidate
-owns the terminal, so there is no separate raw log and the recording is the
+the recording, the fault timeline, and the score. Its `state.json` also says
+what the environment was produced on, read as it came up: the node image, the
+kind and kubectl versions, the platform version, the content the box
+unpacked, and whether it ran here or on a host. Two candidates on one seeded
+problem only compare when those match. On a host the candidate owns the
+terminal, so there is no separate raw log and the recording is the
 transcript. End the session from the machine that started it:
 
 ```sh

@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"io"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -345,10 +347,6 @@ func TestStartArgErrors(t *testing.T) {
 		!strings.Contains(stderr, "no problem") {
 		t.Errorf("unknown problem: exit %d, stderr %q", code, stderr)
 	}
-	if code, _, stderr := run(t, "start", "slow-aligner", "--content", goodRoot); code != 1 ||
-		!strings.Contains(stderr, "only debugging problems") {
-		t.Errorf("take-home: exit %d, stderr %q", code, stderr)
-	}
 	if code, _, stderr := run(t, "start", "pipeline-meltdown", "--content", goodRoot,
 		"--seed", "Not A Seed"); code != 2 || !strings.Contains(stderr, "seed") {
 		t.Errorf("bad seed: exit %d, stderr %q", code, stderr)
@@ -380,6 +378,163 @@ func TestStartRefusesRemoteFlagsWithoutRemote(t *testing.T) {
 		}
 	}
 	// Nothing above should have left a record behind.
+	if list, err := interview.List(); err != nil || len(list) != 0 {
+		t.Errorf("refused starts recorded sessions: %v, %v", list, err)
+	}
+}
+
+// start dispatches on the type. A take-home has no environment to build, so
+// it gets the drop and the record instead, and the interviewer does not have
+// to know that bundle was the verb for this one.
+func TestStartHandsOutATakeHome(t *testing.T) {
+	requireGit(t)
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	out := filepath.Join(t.TempDir(), "drop")
+	code, stdout, stderr := run(t, "start", "slow-aligner", "--content", goodRoot,
+		"--seed", "calm-bison-0731", "--level", "senior", "-o", out, "--due", "48h")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(out, "ABOUT.md")); err != nil {
+		t.Errorf("no bundle at %s: %v", out, err)
+	}
+	if !strings.Contains(stdout, out) || !strings.Contains(stdout, "due:") {
+		t.Errorf("stdout does not say where it landed and when it is due:\n%s", stdout)
+	}
+	rec, err := interview.Load("calm-bison-0731")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Mode != interview.Offline || rec.Stage != interview.Created ||
+		rec.Type != taxonomy.TakeHome || rec.Level != taxonomy.Senior ||
+		rec.BundlePath != out || rec.DueAt.IsZero() {
+		t.Errorf("record does not describe a take-home that was handed out: %+v", rec)
+	}
+}
+
+// Asking for a destination is not something to do with a candidate waiting,
+// so an offline start without -o picks one and prints where it went.
+func TestStartDefaultsTheBundleDestination(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(interview.HomeEnv, home)
+	code, stdout, stderr := run(t, "start", "global-feed", "--content", goodRoot,
+		"--seed", "calm-bison-0801")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	want := filepath.Join(home, "bundles", "calm-bison-0801")
+	if _, err := os.Stat(filepath.Join(want, "candidate", "brief.md")); err != nil {
+		t.Errorf("no bundle at %s: %v", want, err)
+	}
+	if !strings.Contains(stdout, want) {
+		t.Errorf("stdout does not name the bundle it wrote:\n%s", stdout)
+	}
+	rec, err := interview.Load("calm-bison-0801")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Type != taxonomy.SysDesign || rec.BundlePath != want || rec.Evidence != want {
+		t.Errorf("record does not point at the bundle: %+v", rec)
+	}
+}
+
+// The two verbs hand out the same interview, so the drop and the record have
+// to be the same whichever one was typed.
+func TestStartAndBundleHandOutTheSameInterview(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	dir := t.TempDir()
+	byBundle, byStart := filepath.Join(dir, "bundled"), filepath.Join(dir, "started")
+	if code, _, stderr := run(t, "bundle", "global-feed", "--content", goodRoot,
+		"--seed", "calm-bison-0731", "--level", "staff", "-o", byBundle); code != 0 {
+		t.Fatalf("bundle: exit %d, stderr %q", code, stderr)
+	}
+	fromBundle, err := interview.Load("calm-bison-0731")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run(t, "start", "global-feed", "--content", goodRoot,
+		"--seed", "calm-bison-0731", "--level", "staff", "-o", byStart); code != 0 {
+		t.Fatalf("start: exit %d, stderr %q", code, stderr)
+	}
+	fromStart, err := interview.Load("calm-bison-0731")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !maps.Equal(treeOf(t, byBundle), treeOf(t, byStart)) {
+		t.Error("start and bundle wrote different drops for the same seed")
+	}
+	// Everything the registry answers questions with later, minus the two
+	// fields that are meant to differ.
+	fromStart.BundlePath, fromStart.Evidence = fromBundle.BundlePath, fromBundle.Evidence
+	fromStart.CreatedAt = fromBundle.CreatedAt
+	if *fromStart != *fromBundle {
+		t.Errorf("records differ:\nstart:  %+v\nbundle: %+v", fromStart, fromBundle)
+	}
+}
+
+// treeOf reads a directory into a path-to-contents map, for comparing two
+// bundles without caring how they were laid down.
+func treeOf(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[rel] = string(data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("%s is empty, so comparing it proves nothing", root)
+	}
+	return files
+}
+
+// A flag that describes an environment means nothing to a type that never
+// gets one, and taking it silently is the mistake --ttl already made.
+func TestStartRefusesEnvironmentFlagsOnAnOfflineProblem(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	for _, flags := range [][]string{
+		{"--no-break"},
+		{"--base-url", "https://interviews.example"},
+		{"--remote"},
+	} {
+		args := append([]string{"start", "global-feed", "--content", goodRoot}, flags...)
+		code, _, stderr := run(t, args...)
+		if code != 2 || !strings.Contains(stderr, flags[0]) || !strings.Contains(stderr, "sysdesign") {
+			t.Errorf("%v: exit %d, stderr %q, want a usage error naming the flag and the type", flags, code, stderr)
+		}
+	}
+	if list, err := interview.List(); err != nil || len(list) != 0 {
+		t.Errorf("refused starts recorded sessions: %v, %v", list, err)
+	}
+}
+
+// The other half of the same rule. Reaching this error also says start took
+// the environment path for a debugging problem, without building one.
+func TestStartRefusesBundleFlagsOnADebuggingProblem(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	for _, flags := range [][]string{
+		{"-o", filepath.Join(t.TempDir(), "drop")},
+		{"--due", "48h"},
+	} {
+		args := append([]string{"start", "pipeline-meltdown", "--content", goodRoot}, flags...)
+		code, _, stderr := run(t, args...)
+		if code != 2 || !strings.Contains(stderr, flags[0]) || !strings.Contains(stderr, "debugging") {
+			t.Errorf("%v: exit %d, stderr %q, want a usage error naming the flag and the type", flags, code, stderr)
+		}
+	}
 	if list, err := interview.List(); err != nil || len(list) != 0 {
 		t.Errorf("refused starts recorded sessions: %v, %v", list, err)
 	}

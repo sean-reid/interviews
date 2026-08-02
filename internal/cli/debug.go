@@ -28,7 +28,10 @@ func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdo
 		return nil, err
 	}
 	if r.entry.Type != taxonomy.Debugging {
-		return nil, fmt.Errorf("%s is a %s problem; only debugging problems run environments", problemID, r.entry.Type)
+		// Naming the verb that does handle it, because the last thing an
+		// error should leave anyone doing is guessing at the command.
+		return nil, fmt.Errorf("%s is a %s problem; only debugging problems run environments"+
+			" (interviews start hands it out, interviews bundle writes the drop)", problemID, r.entry.Type)
 	}
 	scenario, issues := debug.LoadScenario(r.entry.Problem)
 	if scenario == nil || content.Errors(issues) {

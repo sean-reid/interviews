@@ -18,7 +18,7 @@ Usage:
 
 Running an interview:
   list       list problems in the content tree
-  start      build an environment, break it, and open a recorded terminal
+  start      begin an interview: an environment for debugging, a bundle otherwise
   hint       log a hint against the running session
   end        stop the session, keep the evidence, tear the environment down
   sent       mark an offline interview as handed to the candidate
@@ -46,8 +46,9 @@ Everywhere:
   version    print the version
   help       this menu, or help <command> for one command
 
-A live interview is start, hint, end. The commands under authoring are the
-pieces those are built from, for writing content and for CI.
+A debugging interview is start, hint, end; an offline one is start, sent,
+returned, reviewed. The commands under authoring are the pieces those are
+built from, for writing content and for CI.
 
 Commands that read problems take --content <dir>. Without it, the root comes
 from interviews config, then $INTERVIEWS_CONTENT, then ./content. --seed

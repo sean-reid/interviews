@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/interview"
@@ -53,6 +54,40 @@ func passed(fs *flag.FlagSet, name string) bool {
 	return seen
 }
 
+// flagsPassed lists which of names were given, spelled the way they were
+// typed, for the messages that have to name them back.
+func flagsPassed(fs *flag.FlagSet, names ...string) []string {
+	var given []string
+	for _, name := range names {
+		if !passed(fs, name) {
+			continue
+		}
+		dash := "--"
+		if len(name) == 1 {
+			dash = "-"
+		}
+		given = append(given, dash+name)
+	}
+	return given
+}
+
+// seedOrNew validates the interview id the interviewer gave, or invents one.
+// The exit code comes back with it: a malformed id is a usage error, a
+// generator that cannot produce one is a failure.
+func seedOrNew(seed string) (string, int, error) {
+	if seed == "" {
+		generated, err := interview.NewSeed(time.Now())
+		if err != nil {
+			return "", 1, err
+		}
+		return generated, 0, nil
+	}
+	if err := interview.ValidSeed(seed); err != nil {
+		return "", 2, err
+	}
+	return seed, 0, nil
+}
+
 // newBareFlagSet is for the commands that read the content root from the
 // session record instead of a flag.
 func newBareFlagSet(name string, stderr io.Writer) *flag.FlagSet {
@@ -72,11 +107,14 @@ func newBareFlagSet(name string, stderr io.Writer) *flag.FlagSet {
 	return fs
 }
 
-// synopses are the one-line invocations, keyed by command name. They head
-// --help, answer help <command>, and are what a usage error prints, so
-// there is one wording per command rather than three.
+// synopses are the invocations, keyed by command name. They head --help,
+// answer help <command>, and are what a usage error prints, so there is one
+// wording per command rather than three. One line each, except start, which
+// dispatches on the problem's type and so has flags per type.
 var synopses = map[string]string{
-	"start":    `interviews start <problem-id> [--level senior] [--seed id] [--no-break] [--remote [--ttl 120] [--instance-type t]]`,
+	"start": `interviews start <problem-id> [--level senior] [--seed id] [--set k=v]
+         debugging: [--no-break] [--remote [--ttl 120] [--instance-type t]]
+         take-home or design: [-o dir|file.tar.gz] [--due 120h]`,
 	"hint":     `interviews hint "what you told them" [--minute n] [--seed id]`,
 	"end":      `interviews end [<seed>] [--purge]`,
 	"sessions": `interviews sessions [--all] [--waiting] [--remote] | sessions show [<seed>] | sessions log [<seed>] [--follow]`,

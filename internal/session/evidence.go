@@ -43,9 +43,11 @@ func redacted(name string, raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	// The tokens are the whole of the URL authentication, and the URLs
-	// contain them.
-	info.CandidateToken, info.ObserverToken = "", ""
-	info.CandidateURL, info.ObserverURL = "", ""
+	// contain them. All three, the app route included: this bundle syncs to
+	// the bucket every two minutes while the interview is still running, so
+	// a token inside it is live rather than historical.
+	info.CandidateToken, info.ObserverToken, info.AppToken = "", "", ""
+	info.CandidateURL, info.ObserverURL, info.AppURL = "", "", ""
 	return json.MarshalIndent(info, "", "  ")
 }
 

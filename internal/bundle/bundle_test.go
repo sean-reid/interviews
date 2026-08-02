@@ -342,3 +342,55 @@ func TestBundleRefusesExistingTarball(t *testing.T) {
 		t.Fatalf("err = %v, want an already-exists refusal", err)
 	}
 }
+
+// The candidate drop is a git repository, and git init copies the operator's
+// template directory into .git. The gate does not look inside .git, so
+// anything an interviewer keeps in their template rode out with the drop.
+func TestBundleCarriesNothingFromTheOperatorsGitTemplate(t *testing.T) {
+	requireGit(t)
+	tmpl := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpl, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const marker = "OPERATOR-TEMPLATE-MARKER"
+	if err := os.WriteFile(filepath.Join(tmpl, "hooks", "pre-commit"),
+		[]byte("#!/bin/sh\n# "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_TEMPLATE_DIR", tmpl)
+
+	// Positive control: git really does honour this template, so a clean
+	// bundle below means the fix worked and not that the plumbing is inert.
+	control := filepath.Join(t.TempDir(), "control")
+	if err := os.MkdirAll(control, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", control, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("control init: %v: %s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(control, ".git", "hooks", "pre-commit")); err != nil {
+		t.Skipf("this git ignores GIT_TEMPLATE_DIR, so the assertion below proves nothing: %v", err)
+	}
+
+	p := loadProblem(t, baseFiles())
+	out := filepath.Join(t.TempDir(), "out")
+	if err := Write(p, resolve(t, p), out); err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	if err := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		raw, rerr := os.ReadFile(path)
+		if rerr == nil && strings.Contains(string(raw), marker) {
+			found = append(found, path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(found) > 0 {
+		t.Errorf("the operator's git template reached the candidate drop: %v", found)
+	}
+}

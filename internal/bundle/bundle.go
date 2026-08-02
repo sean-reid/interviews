@@ -147,7 +147,11 @@ func writeAbout(p *content.Problem, dir string, sp spec) error {
 // repository's configuration.
 func gitInit(dir string) error {
 	steps := [][]string{
-		{"init", "-q", "-b", "main"},
+		// Empty --template so git copies nothing from the operator's
+		// template directory. The default one is whatever init.templateDir
+		// or ~/.config/git/templates points at, and the gate does not look
+		// inside .git, so anything living there rode out to the candidate.
+		{"init", "-q", "-b", "main", "--template="},
 		{"add", "-A"},
 		{"-c", "user.name=candidate", "-c", "user.email=candidate@localhost",
 			"-c", "commit.gpgsign=false", "-c", "core.hooksPath=", "-c", "core.excludesFile=", "commit", "-q", "-m", "initial drop"},

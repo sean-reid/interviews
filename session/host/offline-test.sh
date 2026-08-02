@@ -65,6 +65,11 @@ fail=0
 check() { if eval "$2"; then echo "  ok   $1"; else echo "  FAIL $1"; fail=1; fi; }
 check "interviewer account exists"      "id interviewer >/dev/null 2>&1"
 check "candidate account exists"        "id candidate >/dev/null 2>&1"
+# Positive control before the negative one. "candidate cannot read X" reports
+# ok if sudo is missing, if the account does not exist, or if sudo errors for
+# any reason at all, and the check below it is the one the whole two-account
+# design rests on.
+check "sudo -u candidate works at all"  "sudo -u candidate test -r /etc/hostname"
 check "candidate cannot read the content" "! sudo -u candidate test -r /opt/interviews/content"
 check "platform unpacked"               "test -x /opt/interviews/interviews"
 check "content unpacked"                "test -d /opt/interviews/content"
@@ -73,8 +78,15 @@ check "sudoers rule is valid"           "visudo -cqf /etc/sudoers.d/iv-session"
 check "Caddyfile rendered with tokens"  "grep -q aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa /etc/caddy/Caddyfile"
 check "Caddyfile has the app route"     "grep -q cccccccccccccccccccccccccccccccc /etc/caddy/Caddyfile"
 check "no placeholder left in Caddyfile" "! grep -q IV_ /etc/caddy/Caddyfile"
+check "Caddyfile is not world readable" "test \"\$(stat -c %a /etc/caddy/Caddyfile)\" = 640"
 check "units installed"                 "test -f /etc/systemd/system/iv-session.service"
 check "tmux dir group-writable"         "test -g /run/interviews/tmux"
+check "self-destruct armed before prereqs" "grep -q self-destruct /tmp/provision.out"
+# The units are asserted, not just printed: dropping one from provision.sh
+# used to leave a shorter list and a green run.
+for unit in iv-session.service iv-ttl.service iv-timeline.timer iv-evidence-sync.timer; do
+  check "$unit would have started" "grep -q $unit /tmp/units"
+done
 echo "units it would have started, in order:"
 sed "s/^/  /" /tmp/units
 exit $fail

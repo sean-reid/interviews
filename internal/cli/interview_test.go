@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -339,6 +340,53 @@ func TestEndRefusesAnUnknownSession(t *testing.T) {
 	}
 	if code, _, stderr := run(t, "end"); code == 0 || !strings.Contains(stderr, "interviews start") {
 		t.Errorf("end with nothing started: exit %d, stderr %q", code, stderr)
+	}
+}
+
+// end tears down against the tree the session was built from. Comparing the
+// --content value to the fallback used to stand in for "was the flag given",
+// which stops being true the moment a machine configures a root: the default
+// is the configured one, so it never equals the fallback, so the recorded
+// root was always discarded and teardown resolved against the wrong tree.
+func TestContentRootForPrefersTheRecordedTree(t *testing.T) {
+	const flagRoot = "/flag/root"
+	for _, tc := range []struct {
+		name     string
+		recorded string
+		explicit bool
+		want     string
+	}{
+		{"recorded wins over a defaulted flag", "/recorded", false, "/recorded"},
+		{"an explicit flag wins", "/recorded", true, flagRoot},
+		{"nothing recorded falls back to the flag", "", false, flagRoot},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := contentRootFor(tc.recorded, flagRoot, tc.explicit); got != tc.want {
+				t.Errorf("contentRootFor(%q, %q, %v) = %q, want %q",
+					tc.recorded, flagRoot, tc.explicit, got, tc.want)
+			}
+		})
+	}
+}
+
+// passed has to read the command line, not the resulting value, or the case
+// above comes straight back.
+func TestPassedReadsTheCommandLineNotTheValue(t *testing.T) {
+	fs := newBareFlagSet("test", io.Discard)
+	fs.String("content", "/configured", "")
+	if err := fs.Parse([]string{"--content", "/configured"}); err != nil {
+		t.Fatal(err)
+	}
+	if !passed(fs, "content") {
+		t.Error("a flag given explicitly, even with its default value, reads as not given")
+	}
+	other := newBareFlagSet("test", io.Discard)
+	other.String("content", "/configured", "")
+	if err := other.Parse(nil); err != nil {
+		t.Fatal(err)
+	}
+	if passed(other, "content") {
+		t.Error("a flag nobody typed reads as given")
 	}
 }
 

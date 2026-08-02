@@ -25,6 +25,31 @@ func newFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *string) {
 	return fs, content
 }
 
+// contentRootFor picks the tree a recorded session resolves against. The
+// session's own root wins, because it is where the environment was built;
+// the configured root describes this machine, not this session, and tearing
+// down against the wrong tree strands what it was meant to remove.
+func contentRootFor(recorded, flagRoot string, explicit bool) string {
+	if recorded == "" || explicit {
+		return flagRoot
+	}
+	return recorded
+}
+
+// passed reports whether a flag was actually given on the command line.
+// Comparing a value to its default cannot answer that, because the default
+// for --content is the resolved root and so it differs from the fallback on
+// every machine that has configured one.
+func passed(fs *flag.FlagSet, name string) bool {
+	seen := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			seen = true
+		}
+	})
+	return seen
+}
+
 // newBareFlagSet is for the commands that read the content root from the
 // session record instead of a flag.
 func newBareFlagSet(name string, stderr io.Writer) *flag.FlagSet {

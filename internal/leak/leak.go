@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 )
 
 // Class is the visibility of one file within a problem directory.
@@ -44,13 +45,32 @@ var ProtectedFiles = []string{"env.yaml", "review.yaml", "problem.yaml"}
 // on a case-insensitive filesystem, Interviewer/ and interviewer/ are the same
 // directory, and a classifier that only knows the lowercase spelling would
 // call the other one publishable.
+//
+// A segment that is not plain ASCII is protected whatever it spells. EqualFold
+// is simple case folding, so it does not fold a dotted capital I, a Cyrillic e,
+// a fullwidth i, or a name with a zero-width space in it onto the ASCII
+// spelling: each of those is a directory that looks exactly like interviewer/
+// to a human and publishes like an ordinary candidate file. Deciding those are
+// protected costs an author a rename and cannot leak an answer key.
 func isProtectedName(seg string, names []string) bool {
+	if !isASCII(seg) {
+		return true
+	}
 	for _, n := range names {
 		if strings.EqualFold(seg, n) {
 			return true
 		}
 	}
 	return false
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 // Classifier classifies paths relative to a problem root.
@@ -145,7 +165,11 @@ func (c *Classifier) Scan(fsys fs.FS) (*Scan, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if !d.Type().IsRegular() || multiplyLinked(d) {
+		if !d.Type().IsRegular() || multiplyLinked(d) || !isASCII(p) {
+			// Non-ASCII is here rather than only in isProtectedName so the
+			// author is told. Treating the path as protected keeps the answer
+			// key in, but silently withholding a candidate file the author
+			// meant to ship is its own failure; this makes it a hard error.
 			s.Irregular = append(s.Irregular, p)
 			s.Interviewer = append(s.Interviewer, p)
 			return nil

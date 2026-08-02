@@ -34,14 +34,14 @@ policy. Replace the four placeholders first:
 - `ACCOUNT_ID` with your twelve digit account id
 - `REGION` with the region you provision in, for example `eu-west-1`
 - `BUCKET` with the evidence bucket name you are about to create
-- `STATE_BUCKET` with the bucket holding the account module's state, which is a second bucket, created by hand below
+- `STATE_BUCKET` with the account module's state bucket, created by hand below
 
-Run this as an account administrator rather than as the user it creates. The policy withholds IAM from that identity on purpose, so it can neither read nor attach its own.
+Run this as an administrator, not as the user it creates: that identity is denied IAM over itself.
 
 ```sh
 account=$(aws sts get-caller-identity --query Account --output text)
-# STATE_BUCKET before BUCKET: the second is a substring of the first, and
-# the other order rewrites it to STATE_my-interview-evidence in silence.
+# STATE_BUCKET first: BUCKET is a substring of it, and the other order
+# silently rewrites it to STATE_my-interview-evidence.
 sed -e "s/STATE_BUCKET/my-interview-tfstate/g" -e "s/ACCOUNT_ID/$account/g" -e "s/REGION/eu-west-1/g" -e "s/BUCKET/my-interview-evidence/g" infra/aws/terraform-policy.json >/tmp/iv-terraform-policy.json
 grep -q 'ACCOUNT_ID\|REGION\|BUCKET' /tmp/iv-terraform-policy.json && echo "a placeholder did not get replaced"
 
@@ -59,19 +59,17 @@ export AWS_PROFILE=interviews-personal
 aws sts get-caller-identity                   # check the account is the one you meant
 ```
 
-Check that last line rather than assume it. A profile name that collides with an
-SSO profile you already have shadows it silently, and the failure mode is
-terraform building an interview host in someone else's account. If your
-organisation manages `~/.aws/config` with a tool, keep `region` in the
-credentials file entry instead, or a regeneration will drop it.
+Check that last line rather than assume it: a name that collides with an SSO
+profile shadows it silently, and terraform then builds a host in someone
+else's account. If a tool manages your `~/.aws/config`, keep `region` in the
+credentials entry or a regeneration will drop it.
 
-The policy pins a region, so provisioning somewhere else fails with
-`UnauthorizedOperation` until you update it. That is deliberate: a typo in
-`-var region=` cannot quietly build a host on the other side of the world.
+The policy pins a region, so provisioning elsewhere fails with
+`UnauthorizedOperation` until you update it. That is deliberate.
 
-After editing the policy, re-attach it. The file in this repository and the
-policy on the user are separate things, and a stale attachment is invisible
-until something is denied:
+Re-attach after editing the policy. The file here and the policy on the user
+are separate things, and a stale attachment is invisible until something is
+denied:
 
 ```sh
 aws iam list-user-policies --user-name interviews-terraform
@@ -79,28 +77,20 @@ aws iam put-user-policy --user-name interviews-terraform \
   --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
 ```
 
-List first and reuse the name that is already there. `put-user-policy` writes
-the name you give it, so a new name leaves the old policy attached beside the
-new one, and inline policies are a union: a grant this file dropped, such as
-the `s3:*` that used to sit on the evidence bucket, would still be in force
-and nothing would say so. Both commands need an administrator, since this
-user is denied IAM over itself on purpose.
+Reuse the policy name already there. Inline policies are a union, so a new
+name leaves the old one in force beside it.
 
-The policy has been run end to end against a real account: it creates the
-bucket, provisions a host with its role and instance profile, and destroys all
-of it. Four actions were missing when it was written from reading the modules,
-which is worth knowing if you extend them. A data source reads attributes as
-well as resources, and the console actions are there for operability rather
-than for terraform: a host has no ssh, so `ec2:GetConsoleOutput` is the only
-way to see one fail from outside.
-
-You can check an attachment without provisioning anything. A call that comes
-back `NoSuchEntity` was permitted; one that comes back `AccessDenied` was not:
+When you extend the policy, probe rather than infer it from the modules: a
+create is followed by reads the configuration never names, and `iam:PassRole`
+has no API call at all. Probe against a name nothing owns, and add every
+denial at once.
 
 ```sh
-aws iam get-role --role-name iv-probe-does-not-exist   # NoSuchEntity: allowed
-aws iam get-role --role-name SomeOtherRole             # AccessDenied: correctly scoped
-aws ec2 describe-vpcs --region <another-region>        # AccessDenied: region lock works
+probe() { printf '%-34s ' "$1"; shift; case $("$@" 2>&1) in
+  *AccessDenied*|*"not authorized"*) echo DENIED;; *) echo ok;; esac; }
+probe GetFunctionCodeSigningConfig aws lambda get-function-code-signing-config --function-name iv-reaper
+probe SomeOtherRole                aws iam get-role --role-name SomeOtherRole   # expect DENIED
+probe AnotherRegion                aws ec2 describe-vpcs --region us-east-1     # expect DENIED
 ```
 
 What the policy allows, and why each part is there:
@@ -118,38 +108,13 @@ What the policy allows, and why each part is there:
 `Describe*` calls cannot be scoped to a resource, so those are `"Resource": "*"`
 with a region condition. Everything that can be scoped is.
 
-That applies to `logs:DescribeLogGroups` too, which is easy to miss because it
-sits beside log group actions that do scope. Written next to them it is denied,
-and terraform reads the reaper's log group that way, so the apply fails partway
-with the function already created. The probe below is how to tell: an action
-that is genuinely permitted comes back with a not-found, never a denial.
+`logs:DescribeLogGroups` is one of them, which is easy to miss sitting beside
+log group actions that do scope.
 
-Two details worth knowing before editing the file. `iam:PassRole` has no matching
-API call: it is a permission the console and terraform check, and deleting it
-because it does not appear in the API reference breaks the instance profile
-attachment. And several of the S3 bucket actions abbreviate their API operation:
-`s3:GetLifecycleConfiguration` is what authorizes `GetBucketLifecycleConfiguration`,
-and `s3:GetBucketPublicAccessBlock` authorizes `GetPublicAccessBlock`, so check
-those against the S3 page of the service authorization reference. Every other
-action name is an API operation, which is checkable offline against the model
-the AWS CLI ships:
-
-```sh
-python3 - <<'EOF'
-import json
-base = "/usr/local/aws-cli/awscli/botocore/data"
-ops = set(json.load(open(f"{base}/ec2/2016-11-15/service-2.json"))["operations"])
-print("DescribeAddressesAttribute" in ops)
-EOF
-```
-
-That check is how `ec2:DescribeInstanceMetadataDefaults` came out of this policy:
-it does not exist. The real names are `GetInstanceMetadataDefaults` and
-`ModifyInstanceMetadataDefaults`, and neither is needed, because
-`metadata_options` goes out with `RunInstances` and reads back through
-`DescribeInstances`. Changing it on a host that is already up would need
-`ec2:ModifyInstanceMetadataOptions`, which no documented flow here does: each
-interview gets a fresh host.
+Some S3 action names abbreviate their API operation, so check those against the
+S3 page of the service authorization reference: `s3:GetLifecycleConfiguration`
+authorizes `GetBucketLifecycleConfiguration`, and `s3:GetBucketPublicAccessBlock`
+authorizes `GetPublicAccessBlock`.
 
 The instance gets its own much smaller role, written by the module: it may put
 objects under `s3://<bucket>/<seed>/` and get the content tarball, nothing more.
@@ -157,9 +122,7 @@ A candidate on the host inherits that and no more.
 
 ## The account module
 
-The reaper and the evidence bucket's expiry rule live in `infra/aws/account`. Its state goes in a bucket of its own: it cannot go in the evidence bucket, because this module is what creates that, and local state would leave the account manageable from exactly one laptop.
-
-Create that bucket by hand, once, as an administrator. It cannot create itself.
+The reaper and the evidence bucket's expiry rule live in `infra/aws/account`. Its state needs a bucket of its own, since this module creates the evidence one. Make it by hand, as an administrator:
 
 ```sh
 aws s3api create-bucket --bucket my-interview-tfstate --region eu-west-1 --create-bucket-configuration LocationConstraint=eu-west-1
@@ -167,7 +130,7 @@ aws s3api put-bucket-versioning --bucket my-interview-tfstate --versioning-confi
 aws s3api put-public-access-block --bucket my-interview-tfstate --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 ```
 
-Then point the module at it. An account that has already run interviews owns the evidence bucket, so adopt it rather than let the plan propose building one:
+An account that has run interviews already owns the evidence bucket, so import it rather than let the plan build one:
 
 ```sh
 cd infra/aws/account
@@ -180,9 +143,9 @@ terraform import $vars aws_s3_bucket_public_access_block.evidence my-interview-e
 terraform plan $vars
 ```
 
-Read that plan for destroys, not for creates. The evidence bucket holds every past interview, and a wrong import address makes the first plan propose replacing it. Expect the reaper and the lifecycle rule to be created, and nothing at all to be destroyed. Apply only then.
+Read the plan for destroys before applying. It should create the reaper and the lifecycle rule and destroy nothing; a wrong import address instead proposes replacing a bucket holding every past interview.
 
-A reaper nobody has watched terminate something is not yet a backstop. Launch an instance tagged `ManagedBy=interviews`, `Interview=probe`, and a `TTLMinutes` already past, wait for a cycle, then read `aws logs tail /aws/lambda/iv-reaper --since 1h` and confirm it names that instance and spares everything else.
+Then prove the reaper, because one nobody has watched fire is not a backstop. Launch an instance tagged `ManagedBy=interviews`, `Interview=probe`, and a `TTLMinutes` already past, wait a cycle, and check `aws logs tail /aws/lambda/iv-reaper --since 1h` names it and spares everything else.
 
 ## One-time setup
 

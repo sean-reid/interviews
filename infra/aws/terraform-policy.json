@@ -163,15 +163,41 @@
       "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/aws/lambda/iv-*"
     },
     {
-      "Sid": "EvidenceBucketOnlyThisOne",
+      "Sid": "EvidenceBucketCreateAndConfigure",
       "Effect": "Allow",
       "Action": [
-        "s3:*"
+        "s3:CreateBucket",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetBucketAcl",
+        "s3:GetBucketCORS",
+        "s3:GetBucketLogging",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketRequestPayment",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketWebsite",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration"
       ],
-      "Resource": [
-        "arn:aws:s3:::BUCKET",
-        "arn:aws:s3:::BUCKET/*"
-      ]
+      "Resource": "arn:aws:s3:::BUCKET"
+    },
+    {
+      "Sid": "EvidenceObjectsOnlyThisBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::BUCKET/*"
     }
   ]
 }

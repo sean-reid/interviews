@@ -27,18 +27,7 @@ func TestConfigSetsTheContentRootForEveryCommand(t *testing.T) {
 	}
 
 	// The point of the setting: a command run from anywhere finds the content.
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(cwd); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	t.Chdir(t.TempDir())
 	code, stdout, stderr := run(t, "list")
 	if code != 0 {
 		t.Fatalf("list outside the tree: exit %d, stderr %q", code, stderr)

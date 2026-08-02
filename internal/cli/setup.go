@@ -110,7 +110,7 @@ func setupAWS(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews setup aws: %v\n", err)
 		return 1
 	}
-	uri := fmt.Sprintf("s3://%s/tarballs/%s", *bucket, TarballName)
+	uri := fmt.Sprintf("s3://%s/%s/%s", *bucket, interview.TarballPrefix, TarballName)
 	prev := interview.LoadConfig().AWS
 	if prev != nil && prev.ContentDigest == digest && prev.TarballURI == uri {
 		fmt.Fprintf(stdout, "bundle unchanged since %s, not re-uploading\n",

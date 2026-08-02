@@ -59,7 +59,9 @@ func terraformEnv(profile, seed string) ([]string, error) {
 // interviewer can destroy any host and losing a checkout strands nothing.
 // The prefix is separate from the evidence prefix because the host's own role
 // may write evidence and must not reach state.
-func StateKey(seed string) string { return "state/" + seed + "/terraform.tfstate" }
+func StateKey(seed string) string {
+	return interview.StatePrefix + "/" + seed + "/terraform.tfstate"
+}
 
 // startRemote provisions a host and records the session.
 func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions, stdout, stderr io.Writer) int {

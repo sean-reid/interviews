@@ -29,17 +29,18 @@ the user can create roles and instance profiles under that prefix and nothing
 else, and it can only touch the one evidence bucket.
 
 [`infra/aws/terraform-policy.json`](../infra/aws/terraform-policy.json) is the
-policy. Replace the three placeholders first:
+policy. Replace the four placeholders first:
 
 - `ACCOUNT_ID` with your twelve digit account id
 - `REGION` with the region you provision in, for example `eu-west-1`
 - `BUCKET` with the evidence bucket name you are about to create
+- `STATE_BUCKET` with the bucket holding the account module's state, which is a second bucket, created by hand below
 
-Then:
+Run this as an account administrator rather than as the user it creates. The policy withholds IAM from that identity on purpose, so it can neither read nor attach its own.
 
 ```sh
 account=$(aws sts get-caller-identity --query Account --output text)
-sed -e "s/ACCOUNT_ID/$account/g" -e "s/REGION/eu-west-1/g" -e "s/BUCKET/my-interview-evidence/g"   infra/aws/terraform-policy.json >/tmp/iv-terraform-policy.json
+sed -e "s/ACCOUNT_ID/$account/g" -e "s/REGION/eu-west-1/g" -e "s/BUCKET/my-interview-evidence/g" -e "s/STATE_BUCKET/my-interview-tfstate/g" infra/aws/terraform-policy.json >/tmp/iv-terraform-policy.json
 
 aws iam create-user --user-name interviews-terraform
 aws iam put-user-policy --user-name interviews-terraform   --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
@@ -135,6 +136,35 @@ interview gets a fresh host.
 The instance gets its own much smaller role, written by the module: it may put
 objects under `s3://<bucket>/<seed>/` and get the content tarball, nothing more.
 A candidate on the host inherits that and no more.
+
+## The account module
+
+The reaper and the evidence bucket's expiry rule live in `infra/aws/account`. Its state goes in a bucket of its own: it cannot go in the evidence bucket, because this module is what creates that, and local state would leave the account manageable from exactly one laptop.
+
+Create that bucket by hand, once, as an administrator. It cannot create itself.
+
+```sh
+aws s3api create-bucket --bucket my-interview-tfstate --region eu-west-1 --create-bucket-configuration LocationConstraint=eu-west-1
+aws s3api put-bucket-versioning --bucket my-interview-tfstate --versioning-configuration Status=Enabled
+aws s3api put-public-access-block --bucket my-interview-tfstate --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+Then point the module at it. An account that has already run interviews owns the evidence bucket, so adopt it rather than let the plan propose building one:
+
+```sh
+cd infra/aws/account
+terraform init -backend-config=bucket=my-interview-tfstate -backend-config=key=account/terraform.tfstate -backend-config=region=eu-west-1
+
+vars="-var region=eu-west-1 -var bucket=my-interview-evidence"
+terraform import $vars aws_s3_bucket.evidence my-interview-evidence
+terraform import $vars aws_s3_bucket_versioning.evidence my-interview-evidence
+terraform import $vars aws_s3_bucket_public_access_block.evidence my-interview-evidence
+terraform plan $vars
+```
+
+Read that plan for destroys, not for creates. The evidence bucket holds every past interview, and a wrong import address makes the first plan propose replacing it. Expect the reaper and the lifecycle rule to be created, and nothing at all to be destroyed. Apply only then.
+
+A reaper nobody has watched terminate something is not yet a backstop. Launch an instance tagged `ManagedBy=interviews`, `Interview=probe`, and a `TTLMinutes` already past, wait for a cycle, then read `aws logs tail /aws/lambda/iv-reaper --since 1h` and confirm it names that instance and spares everything else.
 
 ## One-time setup
 

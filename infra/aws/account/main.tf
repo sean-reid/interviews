@@ -1,5 +1,17 @@
 terraform {
-  required_version = ">= 1.5"
+  # Native S3 state locking, which needs 1.10, rather than a DynamoDB table.
+  required_version = ">= 1.10"
+
+  # State lives in a bucket of its own, configured at init time so nothing
+  # here names one. It cannot be the evidence bucket, because this module
+  # creates that; and local state would keep the account manageable from
+  # exactly one laptop, which is the assumption sessions --remote exists to
+  # remove. The bucket is made by hand once, since it cannot create itself.
+  backend "s3" {
+    # Two machines sharing state can race once it is no longer local.
+    use_lockfile = true
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"

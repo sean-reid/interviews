@@ -105,6 +105,33 @@ func TestBundleCarriesTheCandidatesWork(t *testing.T) {
 	}
 }
 
+// A killed recorder restarts into numbered cast segments. The bundle has to
+// carry every segment plus the log saying why they exist, or ending the
+// recorder would still cost the rest of the recording.
+func TestBundleCarriesCastSegmentsAndRecorderLog(t *testing.T) {
+	workdir := t.TempDir()
+	members := map[string]string{
+		CastFile:        "segment zero",
+		CastFile + ".1": "segment one",
+		CastFile + ".2": "segment two",
+		RecorderLogFile: "2026-08-02T12:00:00Z the recorder exited with the session still up; restarting into session.cast.1\n",
+	}
+	for name, body := range members {
+		if err := os.WriteFile(filepath.Join(workdir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dest := filepath.Join(t.TempDir(), EvidenceFile)
+	if err := bundle(workdir, dest); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range members {
+		if got := tarMember(t, dest, name); got != body {
+			t.Errorf("%s in the bundle = %q, want %q", name, got, body)
+		}
+	}
+}
+
 // The cast grows for the length of the interview and the bundle is rebuilt
 // every two minutes, so bundling has to stream it: reading it whole once per
 // sync pass is how a chatty terminal could OOM the host mid-interview.

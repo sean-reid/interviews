@@ -30,7 +30,21 @@ type EvidenceOptions struct {
 // exists and skips what does not.
 var evidenceFiles = []string{
 	debug.StateFile, grading.ScoreFile, grading.HintsFile, TimelineFile,
-	InfoFile, CastFile, RawLogFile, ScoreErrorFile,
+	InfoFile, CastFile, RawLogFile, RecorderLogFile, ScoreErrorFile,
+}
+
+// castSegments lists the numbered cast files a restarted recorder wrote,
+// in order. The first segment is CastFile itself, already in the fixed
+// list; the supervisor numbers the rest contiguously from 1.
+func castSegments(workdir string) []string {
+	var names []string
+	for n := 1; ; n++ {
+		name := fmt.Sprintf("%s.%d", CastFile, n)
+		if _, err := os.Stat(filepath.Join(workdir, name)); err != nil {
+			return names
+		}
+		names = append(names, name)
+	}
 }
 
 // candidateFileLimit caps one file from the candidate's directory. The
@@ -223,6 +237,14 @@ func bundle(workdir, dest string) (err error) {
 	for _, name := range evidenceFiles {
 		if aerr := addFile(tw, workdir, name); aerr != nil {
 			return aerr
+		}
+		if name != CastFile {
+			continue
+		}
+		for _, seg := range castSegments(workdir) {
+			if aerr := addFile(tw, workdir, seg); aerr != nil {
+				return aerr
+			}
 		}
 	}
 	return addCandidateWork(tw, workdir)

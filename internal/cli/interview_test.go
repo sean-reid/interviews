@@ -88,6 +88,19 @@ func TestHintMinuteOverrideAndSeed(t *testing.T) {
 	}
 }
 
+// grade hint rejects a negative minute with exit 2; hint used to fall back
+// silently to the measured minute for the same input.
+func TestHintRejectsANegativeMinute(t *testing.T) {
+	rec := record(t, &interview.Session{Seed: "calm-bison-0731", Problem: "pipeline-meltdown"})
+	code, _, stderr := run(t, "hint", "too early", "--minute", "-5")
+	if code != 2 || !strings.Contains(stderr, "--minute") {
+		t.Errorf("exit %d, stderr %q, want a usage error naming the flag", code, stderr)
+	}
+	if hints := hintsIn(t, rec.Workdir); len(hints) != 0 {
+		t.Errorf("hints = %v, want none logged", hints)
+	}
+}
+
 func TestHintRefusesAnUnknownSession(t *testing.T) {
 	record(t, &interview.Session{Seed: "calm-bison-0731", Problem: "pipeline-meltdown"})
 	code, _, stderr := run(t, "hint", "text", "--seed", "no-such-session")

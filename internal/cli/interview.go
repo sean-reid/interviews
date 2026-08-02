@@ -228,6 +228,13 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 	if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
 		return usageErr("hint", stderr)
 	}
+	// The default is the sentinel for "measure it"; an explicit negative is
+	// the same input grade hint rejects, and falling back silently logged
+	// the hint at a minute the interviewer never said.
+	if passed(fs, "minute") && *minuteFlag < 0 {
+		fmt.Fprintf(stderr, "interviews hint: --minute %d is not a non-negative integer\n", *minuteFlag)
+		return 2
+	}
 	rec, err := currentOr(*seedFlag, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews hint: %v\n", err)

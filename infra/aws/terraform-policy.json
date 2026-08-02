@@ -172,8 +172,11 @@
       "Action": [
         "logs:CreateLogGroup",
         "logs:DeleteLogGroup",
-        "logs:PutRetentionPolicy",
+        "logs:DescribeLogStreams",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents",
         "logs:ListTagsForResource",
+        "logs:PutRetentionPolicy",
         "logs:TagResource",
         "logs:UntagResource"
       ],

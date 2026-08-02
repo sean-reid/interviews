@@ -248,6 +248,29 @@ func TestScoreAndHintsRoundTrip(t *testing.T) {
 	}
 }
 
+// The score is a complete answer key and the hints are what was given away,
+// refreshed while a candidate has a shell in the next uid over. Owner-only,
+// like state.json beside them: anything wider leans on the host's homedir
+// mode, which nothing here declares.
+func TestScoreAndHintsAreOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteScore(dir, &Score{Problem: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendHint(dir, Hint{Minute: 1, Text: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{ScoreFile, HintsFile} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s mode = %o, want 600", name, got)
+		}
+	}
+}
+
 // An interviewer logs hints beside themselves and pulls the rest of the
 // evidence from the session host, so the ledger has to be loadable by name
 // and mergeable with whatever the host recorded.

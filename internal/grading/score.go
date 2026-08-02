@@ -51,13 +51,15 @@ type Hint struct {
 	At     time.Time `json:"at"`
 }
 
-// WriteScore saves the score into a session workdir.
+// WriteScore saves the score into a session workdir. Owner-only like
+// state.json beside it: the score is a complete answer key, refreshed every
+// two minutes while a candidate has a shell on the same host.
 func WriteScore(workdir string, s *Score) error {
 	raw, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fileio.WriteAtomic(filepath.Join(workdir, ScoreFile), raw, 0o644)
+	return fileio.WriteAtomic(filepath.Join(workdir, ScoreFile), raw, 0o600)
 }
 
 // LoadScore reads a previously written score; nil without error when none
@@ -126,7 +128,9 @@ func AppendHint(workdir string, h Hint) error {
 	if err != nil {
 		return err
 	}
-	return fileio.WriteAtomic(filepath.Join(workdir, HintsFile), raw, 0o644)
+	// Owner-only for the same reason as the score: hints record what the
+	// interviewer gave away, in a workdir another account may traverse.
+	return fileio.WriteAtomic(filepath.Join(workdir, HintsFile), raw, 0o600)
 }
 
 // LoadHints reads a session workdir's hints ledger; empty without error when

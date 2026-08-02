@@ -34,11 +34,11 @@ var evidenceFiles = []string{
 }
 
 // candidateFileLimit caps one file from the candidate's directory. The
-// bundle is rebuilt every two minutes for the whole interview and read whole
-// into memory to do it, so one redirected log would be re-read and re-gzipped
-// thirty times. Anything over the cap is named in skipped.txt instead of
-// being dropped quietly, because a bundle that looks complete and is not is
-// worse than one that says what it left out.
+// bundle is rebuilt every two minutes for the whole interview, so one
+// redirected log would be re-read and re-gzipped thirty times. Anything over
+// the cap is named in skipped.txt instead of being dropped quietly, because
+// a bundle that looks complete and is not is worse than one that says what
+// it left out.
 const candidateFileLimit = 4 << 20
 
 // addCandidateWork puts the candidate's own directory in the bundle. It is
@@ -94,13 +94,10 @@ func addBytes(tw *tar.Writer, name string, raw []byte) error {
 	return err
 }
 
-// redacted returns what a file should look like inside the bundle, or nil
-// to ship it as it is. The bundle is the artifact that leaves the machine
-// and sits in a bucket; nothing grading needs is a credential.
-func redacted(name string, raw []byte) ([]byte, error) {
-	if name != InfoFile {
-		return nil, nil
-	}
+// redactedInfo returns what session.json should look like inside the
+// bundle. The bundle is the artifact that leaves the machine and sits in
+// a bucket; nothing grading needs is a credential.
+func redactedInfo(raw []byte) ([]byte, error) {
 	var info Info
 	if err := json.Unmarshal(raw, &info); err != nil {
 		return nil, err
@@ -231,35 +228,57 @@ func bundle(workdir, dest string) (err error) {
 	return addCandidateWork(tw, workdir)
 }
 
+// addFile streams one workdir file into the archive. session.json is the
+// one exception read whole: its redacted copy has a different length than
+// the header would claim, and it is a few hundred bytes. The cast and the
+// raw log are not small: they grow for the length of the interview, and
+// reading them whole once per sync pass is how a chatty terminal could
+// OOM the host mid-interview.
 func addFile(tw *tar.Writer, workdir, name string) error {
 	path := filepath.Join(workdir, name)
-	info, err := os.Stat(path)
+	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	// Read rather than stream: the files are small, and a redacted copy has
-	// a different length than the header would claim.
-	raw, err := os.ReadFile(path)
+	// Opened read-only, so the close cannot lose writes.
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
 	if err != nil {
 		return err
-	}
-	if clean, err := redacted(name, raw); err != nil {
-		return fmt.Errorf("bundle %s: %w", name, err)
-	} else if clean != nil {
-		raw = clean
 	}
 	hdr, err := tar.FileInfoHeader(info, "")
 	if err != nil {
 		return err
 	}
-	hdr.Name, hdr.Size = name, int64(len(raw))
+	hdr.Name = name
+	if name == InfoFile {
+		raw, err := io.ReadAll(f)
+		if err != nil {
+			return err
+		}
+		if raw, err = redactedInfo(raw); err != nil {
+			return fmt.Errorf("bundle %s: %w", name, err)
+		}
+		hdr.Size = int64(len(raw))
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if _, err := tw.Write(raw); err != nil {
+			return fmt.Errorf("bundle %s: %w", name, err)
+		}
+		return nil
+	}
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	if _, err := tw.Write(raw); err != nil {
+	// The session writes these by appending, so the size at open time is a
+	// floor and the limit keeps the archive valid when a file grows
+	// mid-copy. A file that shrank instead comes up short, which fails the
+	// pass and leaves the last good bundle in place.
+	if _, err := io.Copy(tw, io.LimitReader(f, hdr.Size)); err != nil {
 		return fmt.Errorf("bundle %s: %w", name, err)
 	}
 	return nil

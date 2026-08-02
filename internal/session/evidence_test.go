@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func TestRedactionLeavesNoCredentialInTheBundle(t *testing.T) {
 		}
 	}
 
-	out, err := redacted(InfoFile, raw)
+	out, err := redactedInfo(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +102,36 @@ func TestBundleCarriesTheCandidatesWork(t *testing.T) {
 	}
 	if !strings.Contains(skipped, "candidate/dump.log") {
 		t.Errorf("skipped.txt = %q, want it to name what was left out", skipped)
+	}
+}
+
+// The cast grows for the length of the interview and the bundle is rebuilt
+// every two minutes, so bundling has to stream it: reading it whole once per
+// sync pass is how a chatty terminal could OOM the host mid-interview.
+func TestBundleStreamsTheCast(t *testing.T) {
+	workdir := t.TempDir()
+	cast := make([]byte, 32<<20)
+	for i := range cast {
+		cast[i] = byte(i * 7)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, CastFile), cast, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), EvidenceFile)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	if err := bundle(workdir, dest); err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&after)
+
+	if got := tarMember(t, dest, CastFile); got != string(cast) {
+		t.Errorf("bundle carries %d of the cast's %d bytes, or altered them", len(got), len(cast))
+	}
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > uint64(len(cast))/2 {
+		t.Errorf("bundling a %d byte cast allocated %d bytes; the cast must be streamed, not read whole", len(cast), alloc)
 	}
 }
 

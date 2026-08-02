@@ -132,6 +132,9 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		"-var", "region=" + a.Region,
 		"-var", "evidence_bucket=" + a.Bucket,
 		"-var", "repo_tarball_s3_uri=" + a.TarballURI,
+		// Handed to the host so its own evidence says which content it ran.
+		// The key never changes, so the box cannot work this out for itself.
+		"-var", "content_version=" + rec.ContentVersion,
 		"-var", "ttl_minutes=" + strconv.Itoa(opts.TTLMinutes)}
 	if opts.InstanceType != "" {
 		args = append(args, "-var", "instance_type="+opts.InstanceType)

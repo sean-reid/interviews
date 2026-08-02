@@ -21,14 +21,17 @@ import (
 // fakeRunner records every call and serves scripted results per script
 // basename-with-parent (e.g. "01-image-typo/check.sh").
 type fakeRunner struct {
-	mu       sync.Mutex
-	calls    []string
-	envs     []map[string]string
-	scripted map[string][]error // queue per script key; empty queue = nil
+	mu        sync.Mutex
+	calls     []string
+	envs      []map[string]string
+	scripted  map[string][]error // queue per script key; empty queue = nil
+	outputs   map[string]string  // command-line substring -> stdout
+	outputErr map[string]error   // command-line substring -> Output error
 }
 
 func newFakeRunner() *fakeRunner {
-	return &fakeRunner{scripted: map[string][]error{}}
+	return &fakeRunner{scripted: map[string][]error{},
+		outputs: map[string]string{}, outputErr: map[string]error{}}
 }
 
 // exitStatus is a script failure carrying a process exit code, the shape
@@ -61,7 +64,18 @@ func (r *fakeRunner) Command(_ context.Context, name string, args ...string) err
 func (r *fakeRunner) Output(_ context.Context, name string, args ...string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, name+" "+strings.Join(args, " "))
+	line := name + " " + strings.Join(args, " ")
+	r.calls = append(r.calls, line)
+	for sub, err := range r.outputErr {
+		if strings.Contains(line, sub) {
+			return "", err
+		}
+	}
+	for sub, out := range r.outputs {
+		if strings.Contains(line, sub) {
+			return out, nil
+		}
+	}
 	return "", nil
 }
 

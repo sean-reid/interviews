@@ -467,6 +467,13 @@ func TestStartAndBundleHandOutTheSameInterview(t *testing.T) {
 	// fields that are meant to differ.
 	fromStart.BundlePath, fromStart.Evidence = fromBundle.BundlePath, fromBundle.Evidence
 	fromStart.CreatedAt = fromBundle.CreatedAt
+	// Provenance is stamped as each drop is written, so the two agree on
+	// everything but the instant.
+	if a, b := fromStart.Provenance, fromBundle.Provenance; a == nil || b == nil ||
+		a.Where != b.Where || a.Content != b.Content || a.Platform != b.Platform {
+		t.Errorf("the two verbs recorded different provenance:\nstart:  %+v\nbundle: %+v", a, b)
+	}
+	fromStart.Provenance = fromBundle.Provenance
 	if *fromStart != *fromBundle {
 		t.Errorf("records differ:\nstart:  %+v\nbundle: %+v", fromStart, fromBundle)
 	}

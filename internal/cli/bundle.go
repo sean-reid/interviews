@@ -8,6 +8,7 @@ import (
 
 	"github.com/sean-reid/interviews/internal/bundle"
 	"github.com/sean-reid/interviews/internal/interview"
+	"github.com/sean-reid/interviews/internal/provenance"
 	"github.com/sean-reid/interviews/internal/registry"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 	"github.com/sean-reid/interviews/internal/variant"
@@ -105,10 +106,14 @@ func deliver(cmd string, h handout, stdout, stderr io.Writer) int {
 	if err != nil {
 		abs = h.out
 	}
+	// A drop is graded a week after it goes out, and by then nothing else
+	// says which content produced it.
+	prov := provenance.New(provenance.Running(), contentVersion(h.contentRoot))
 	rec := &interview.Session{
 		Seed: h.seed, Problem: h.problemID, Type: entry.Type, Level: h.level,
 		Mode: interview.Offline, Stage: interview.Created,
 		CreatedAt: time.Now(), BundlePath: abs, Evidence: abs,
+		Provenance: &prov,
 	}
 	if h.due > 0 {
 		rec.DueAt = rec.CreatedAt.Add(h.due)

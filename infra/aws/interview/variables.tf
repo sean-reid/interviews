@@ -35,6 +35,12 @@ variable "repo_tarball_s3_uri" {
   }
 }
 
+variable "content_version" {
+  type        = string
+  default     = ""
+  description = "Version id of the content tarball the host will unpack; recorded in the evidence"
+}
+
 variable "instance_type" {
   type        = string
   default     = "t3.large"

@@ -20,6 +20,8 @@ import (
 
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/grading"
+	"github.com/sean-reid/interviews/internal/provenance"
+	"github.com/sean-reid/interviews/internal/version"
 )
 
 // The bundle syncs to the bucket every two minutes while the interview is
@@ -400,6 +402,49 @@ func TestEvidenceSkipsTheRefreshAfterTeardown(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, EvidenceFile)); err != nil {
 		t.Errorf("no bundle written after teardown: %v", err)
+	}
+}
+
+// The bundle is the only thing that leaves the machine, and comparing two
+// candidates on one seeded problem only holds if both ran on the same thing.
+// The state file it carries has to say what that was.
+func TestBundleCarriesWhatTheEnvironmentWasProducedOn(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	m.Engine.Origin = provenance.New(provenance.Host, "v-0123456789abcdef")
+	m.Engine.Scenario.Env.Kind.NodeImage = "kindest/node:v1.31.4@sha256:0badc0de"
+	r.outputs["kind version"] = "kind v0.29.0 go1.24.2 linux/amd64\n"
+	r.outputs["-o json"] = `{"clientVersion":{"gitVersion":"v1.33.2"}}`
+
+	ctx := context.Background()
+	if err := m.Engine.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Evidence(ctx, EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var st debug.State
+	raw := tarFile(t, filepath.Join(m.Engine.Workdir, EvidenceFile), debug.StateFile)
+	if err := json.Unmarshal(raw, &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Provenance == nil {
+		t.Fatalf("the bundled state says nothing about the machine: %s", raw)
+	}
+	// Against the command that built the cluster, so the bundle is checked
+	// against what really ran rather than against the fake's own script.
+	created := r.callsMatching("kind create cluster")
+	if len(created) != 1 || !strings.Contains(created[0], "--image "+st.Provenance.NodeImage) {
+		t.Errorf("bundled node image %q is not what built the cluster: %v", st.Provenance.NodeImage, created)
+	}
+	if st.Provenance.Kind != "v0.29.0" || st.Provenance.Kubectl != "v1.33.2" {
+		t.Errorf("bundled tool versions = %+v", st.Provenance)
+	}
+	if st.Provenance.Where != provenance.Host || st.Provenance.Content != "v-0123456789abcdef" {
+		t.Errorf("bundle does not say where it was produced: %+v", st.Provenance)
+	}
+	if st.Provenance.Platform != version.Version {
+		t.Errorf("bundled platform version = %q, want %q", st.Provenance.Platform, version.Version)
 	}
 }
 

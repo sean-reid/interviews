@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/sean-reid/interviews/internal/provenance"
 )
 
 // composeProvider hosts compose-linux-flavor scenarios with docker compose.
@@ -24,6 +26,11 @@ func (p *composeProvider) env(env map[string]string) {
 	env["IV_COMPOSE_FILE"] = p.file()
 	env["IV_PROJECT"] = p.project()
 }
+
+// provenance adds nothing. There is no node image and no cluster tooling
+// here, and those fields stay absent rather than empty: an empty version in
+// an evidence bundle reads as one nobody could determine.
+func (p *composeProvider) provenance(context.Context, *provenance.Record) {}
 
 func (p *composeProvider) Detect(ctx context.Context) error {
 	if _, err := p.e.Runner.Output(ctx, "docker", "compose", "version"); err != nil {

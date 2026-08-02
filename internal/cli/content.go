@@ -3,9 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/sean-reid/interviews/internal/provenance"
 )
 
 // ContentStatus is what the content checkout looks like right now. The
@@ -66,6 +69,27 @@ func git(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// contentVersion identifies the problems a run is using, for the provenance
+// it records. A provisioned host is told by its own user-data which tarball
+// version it unpacked; a checkout is its commit, which is the only identity
+// a content tree on a laptop has. Two cheap local git calls, and empty when
+// the content is neither.
+func contentVersion(root string) string {
+	if v := os.Getenv(provenance.ContentVersionEnv); v != "" {
+		return v
+	}
+	commit, err := git(root, "rev-parse", "--short", "HEAD")
+	if err != nil || commit == "" {
+		return ""
+	}
+	// A dirty tree is not the commit it names, and two interviews run from it
+	// are not the same interview.
+	if out, err := git(root, "status", "--porcelain", "--", "."); err == nil && out != "" {
+		return commit + "-dirty"
+	}
+	return commit
 }
 
 // warnStale says so when the content checkout is behind or dirty, and

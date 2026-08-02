@@ -13,6 +13,7 @@ import (
 
 	"github.com/sean-reid/interviews/internal/content"
 	"github.com/sean-reid/interviews/internal/debug"
+	"github.com/sean-reid/interviews/internal/provenance"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
@@ -43,6 +44,13 @@ func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdo
 	}
 	runner := &debug.ExecRunner{Stdout: stdout, Stderr: stderr}
 	return debug.NewEngine(dir, scenario, r.variant, runner, stdout, r.workdir)
+}
+
+// originFor is what an environment's provenance records about this machine.
+// Only the commands that bring one up ask for it: it reads the content
+// checkout, and no other command needs the answer.
+func originFor(contentRoot string) provenance.Record {
+	return provenance.New(provenance.Running(), contentVersion(contentRoot))
 }
 
 // debugFlags parses the flags every debugging command shares.
@@ -126,6 +134,7 @@ func cmdEnv(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	switch verb {
 	case "up":
+		e.Origin = originFor(contentRoot)
 		err = e.Up(ctx)
 	case "verify":
 		if err = e.Verify(ctx); err == nil {

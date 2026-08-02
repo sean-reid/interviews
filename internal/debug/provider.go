@@ -3,6 +3,8 @@ package debug
 import (
 	"context"
 	"fmt"
+
+	"github.com/sean-reid/interviews/internal/provenance"
 )
 
 // Provider owns the environment substrate lifecycle. Everything it does
@@ -16,6 +18,10 @@ type Provider interface {
 	Down(ctx context.Context) error
 	// env contributes provider-specific variables to script environments.
 	env(map[string]string)
+	// provenance adds what the substrate knows about itself: the image it
+	// built from, and the versions the tools that built it report. It must
+	// never fail: Up records what it could not read and carries on.
+	provenance(ctx context.Context, r *provenance.Record)
 }
 
 func (e *Engine) newProvider() (Provider, error) {

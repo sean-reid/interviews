@@ -174,7 +174,8 @@ interviews reviewed                # the live review is done
 
 `interviews sessions` then answers which ones are waiting on you, with
 deadlines, and `sessions show` prints the bundle and submission paths weeks
-later. `--seed` still pins a variant, for regenerating an identical drop.
+later, with the content and platform versions the drop was made from.
+`--seed` still pins a variant, for regenerating an identical drop.
 `interviews bundle <problem> -o <path>` writes that same drop and records the
 same session; it is what authoring and CI use, where the destination is the
 point.

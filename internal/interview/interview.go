@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sean-reid/interviews/internal/fileio"
+	"github.com/sean-reid/interviews/internal/provenance"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
@@ -82,6 +83,12 @@ type Session struct {
 	// Evidence is where the bundle lands: a directory locally, an s3 URI
 	// for a provisioned host.
 	Evidence string `json:"evidence,omitempty"`
+	// Provenance is what an offline drop was produced on. A debugging session
+	// records its own when the environment comes up, in the state file the
+	// evidence bundle carries; an offline interview has no environment, and
+	// its drop is graded a week later, so here the record is the only place
+	// that can say.
+	Provenance *provenance.Record `json:"provenance,omitempty"`
 
 	// Stage, and the paths either side of it, are the offline types: the
 	// bundle that went out and the submission that came back.

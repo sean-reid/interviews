@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/sean-reid/interviews/internal/fileio"
+	"github.com/sean-reid/interviews/internal/provenance"
 	"github.com/sean-reid/interviews/internal/variant"
+	"github.com/sean-reid/interviews/internal/version"
 )
 
 // Engine drives one scenario for one resolved variant: environment
@@ -30,6 +32,11 @@ type Engine struct {
 	Dir string
 	// Workdir holds rendered files and session state.
 	Workdir string
+	// Origin is what only the caller knows about this machine: whether it is
+	// a laptop or a provisioned host, and which content it is running. Up
+	// folds it into the provenance it records with the substrate's own
+	// versions.
+	Origin provenance.Record
 
 	// Timing knobs, defaulted by NewEngine; tests zero them.
 	Settle        time.Duration // grace after inject before the broken check
@@ -48,7 +55,10 @@ type State struct {
 	Pack      string            `json:"pack"`
 	Injected  []string          `json:"injected"`
 	Provider  string            `json:"provider"`
-	CreatedAt time.Time         `json:"created_at"`
+	// Provenance is what the environment was produced on, written when it
+	// came up. Absent on a state file from before it was recorded.
+	Provenance *provenance.Record `json:"provenance,omitempty"`
+	CreatedAt  time.Time          `json:"created_at"`
 	// TornDownAt marks a state file kept only so grading can still read what
 	// the environment was built from. The environment itself is gone.
 	TornDownAt time.Time `json:"torn_down_at,omitzero"`
@@ -283,7 +293,25 @@ func (e *Engine) Up(ctx context.Context) error {
 		Problem: e.Variant.Problem, Seed: e.Variant.InterviewID,
 		Overrides: e.Variant.Overrides, Pack: pack,
 		Injected: injected, Provider: e.provider.Name(), CreatedAt: time.Now(),
+		Provenance: e.provenance(ctx),
 	})
+}
+
+// provenance is what this environment was produced on. It is read here,
+// as the environment comes up, because a version a later command derives is
+// the version that machine has then and not the one this environment was
+// built from. Nothing in it can fail a bring-up: what could not be read is
+// named in the record instead.
+func (e *Engine) provenance(ctx context.Context) *provenance.Record {
+	p := e.Origin
+	if p.Platform == "" {
+		p.Platform = version.Version
+	}
+	if p.At.IsZero() {
+		p.At = time.Now()
+	}
+	e.provider.provenance(ctx, &p)
+	return &p
 }
 
 // Verify runs the scenario's verify script once.

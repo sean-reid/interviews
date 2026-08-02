@@ -163,10 +163,7 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 	if rec.Mode == interview.AWS {
 		return endRemote(rec, stdout, stderr)
 	}
-	root := rec.ContentRoot
-	if root == "" || *contentRoot != DefaultContentRoot {
-		root = *contentRoot
-	}
+	root := contentRootFor(rec.ContentRoot, *contentRoot, passed(fs, "content"))
 	e, err := engineFor(root, rec.Problem, rec.Seed, rec.Workdir, nil, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)

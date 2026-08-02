@@ -403,5 +403,5 @@ func NewSeed(now time.Time) (string, error) {
 			return seed, nil
 		}
 	}
-	return "", errors.New("could not find an unused seed; interviews sessions clean removes old ones")
+	return "", errors.New("could not find an unused seed today; pass your own with --seed")
 }

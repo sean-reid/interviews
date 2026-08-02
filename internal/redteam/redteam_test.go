@@ -75,7 +75,7 @@ func TestLedgerRoundTrip(t *testing.T) {
 	// Several problems land stale, appended out of id order, so the Stale
 	// assertion below fails on any map-iteration order.
 	for _, e := range []Entry{
-		{Problem: "orbit-shop", Type: "debugging", Seed: "cal-1", Driver: "claude",
+		{Problem: "orbit-shop", Type: "debugging", Seed: "cal-1", Pack: "pack-a", Driver: "claude",
 			At: base, Fixed: 2, Total: 7, Verdict: Holds},
 		{Problem: "orbit-shop", Type: "debugging", Seed: "cal-2", Pack: "pack-b", Driver: "claude",
 			At: base.Add(time.Hour), Fixed: 5, Total: 7, Verdict: TooEasy},
@@ -105,12 +105,15 @@ func TestLedgerRoundTrip(t *testing.T) {
 	}
 
 	latest := Latest(entries)
-	// The pack is on the entry, not folded into the seed: every pack has its
-	// own difficulty and the ledger only means something per pack.
-	if got := latest["orbit-shop"]; got.Seed != "cal-2" || got.Pack != "pack-b" || got.Verdict != TooEasy {
-		t.Errorf("latest orbit-shop = %+v", got)
+	// Every pack has its own difficulty, so the packs must not shadow each
+	// other: a pack-a that holds beside a pack-b that fell is the finding.
+	if got := latest["orbit-shop/pack-a"]; got.Seed != "cal-1" || got.Verdict != Holds {
+		t.Errorf("latest orbit-shop/pack-a = %+v", got)
 	}
-	if got := latest["relay"]; got.Verdict != Holds {
+	if got := latest["orbit-shop/pack-b"]; got.Seed != "cal-2" || got.Verdict != TooEasy {
+		t.Errorf("latest orbit-shop/pack-b = %+v", got)
+	}
+	if got := latest["relay/"]; got.Verdict != Holds {
 		t.Errorf("latest relay = %+v", got)
 	}
 
@@ -382,12 +385,18 @@ func TestDebugRunScopesTheAgentsAccess(t *testing.T) {
 	d := &fakeDriver{}
 	t.Setenv("KUBECONFIG", "/interviewer/own/kubeconfig")
 
-	entry, err := DebugRun(context.Background(), e, d, io.Discard, time.Minute)
+	transcripts := t.TempDir()
+	entry, err := DebugRun(context.Background(), e, d, io.Discard, time.Minute, transcripts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if entry.Total != 1 || entry.Turns != 3 {
 		t.Errorf("entry = %+v", entry)
+	}
+	// The scratch directory is deleted when the run ends, so a transcript
+	// inside it would erase the evidence the verdict points at.
+	if filepath.Dir(d.task.Transcript) != transcripts {
+		t.Errorf("transcript %q is not in the durable directory %q", d.task.Transcript, transcripts)
 	}
 
 	kubeconfig := d.task.Env["KUBECONFIG"]

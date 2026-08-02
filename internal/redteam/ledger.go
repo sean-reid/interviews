@@ -45,11 +45,12 @@ type Entry struct {
 	Turns  int       `json:"turns,omitempty"`
 	// Fixed and Total describe debugging outcomes; Notes carries whatever
 	// the type-specific scorer measured.
-	Fixed    int     `json:"fixed,omitempty"`
-	Total    int     `json:"total,omitempty"`
-	Verified bool    `json:"verified,omitempty"`
-	Notes    string  `json:"notes,omitempty"`
-	Verdict  Verdict `json:"verdict"`
+	Fixed      int     `json:"fixed,omitempty"`
+	Total      int     `json:"total,omitempty"`
+	Verified   bool    `json:"verified,omitempty"`
+	Notes      string  `json:"notes,omitempty"`
+	Transcript string  `json:"transcript,omitempty"`
+	Verdict    Verdict `json:"verdict"`
 }
 
 // Share is the fraction of the pack the agent fixed.
@@ -130,20 +131,23 @@ func parseLedger(r io.Reader) ([]Entry, error) {
 	return out, scan.Err()
 }
 
-// Latest returns the most recent entry per problem, keyed by problem id.
+// Latest returns the most recent entry per problem and pack. Calibration
+// writes one entry per pack on purpose, and a pack-a "too easy" beside a
+// pack-b "holds" is exactly the split worth seeing.
 func Latest(entries []Entry) map[string]Entry {
 	out := map[string]Entry{}
 	for _, e := range entries {
-		prev, ok := out[e.Problem]
+		key := e.Problem + "/" + e.Pack
+		prev, ok := out[key]
 		if !ok || e.At.After(prev.At) {
-			out[e.Problem] = e
+			out[key] = e
 		}
 	}
 	return out
 }
 
-// Stale returns the problems whose most recent verdict says rework them,
-// ordered by problem id so the ledger diffs cleanly between runs.
+// Stale returns the problem packs whose most recent verdict says rework
+// them, ordered so the ledger diffs cleanly between runs.
 func Stale(entries []Entry) []Entry {
 	latest := Latest(entries)
 	var out []Entry

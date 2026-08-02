@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -48,7 +47,7 @@ func (d *apiDriver) Run(ctx context.Context, t Task) (*Attempt, error) {
 	if model == "" {
 		model = defaultAPIModel
 	}
-	transcript, err := os.Create(filepath.Join(t.Dir, "transcript.jsonl"))
+	transcript, err := os.Create(t.Transcript)
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +126,11 @@ func runBash(ctx context.Context, use anthropic.ToolUseBlock, t Task) (string, b
 	cmd := exec.CommandContext(ctx, "bash", "-c", in.Command)
 	cmd.Dir = t.Dir
 	cmd.Env = t.environ()
+	// CombinedOutput reads a pipe that reaches EOF only when every writer
+	// closes it, and killing bash does not kill a grandchild holding the
+	// same fd. An agent running "kubectl port-forward ... &" would hang the
+	// whole calibration past any budget without this bound.
+	cmd.WaitDelay = 10 * time.Second
 	out, err := cmd.CombinedOutput()
 	text := string(out)
 	if text == "" {

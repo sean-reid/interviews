@@ -23,7 +23,10 @@ import (
 // It is still not sandboxed at the filesystem level: it runs as this user
 // and could read the content tree if it went looking, so treat a verdict as
 // evidence about difficulty rather than proof the agent worked blind.
-func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, budget time.Duration) (*Entry, error) {
+// transcriptDir is where the agent transcript lands; the scratch directory
+// is deleted on return, so a transcript inside it would erase the evidence
+// every verdict points at.
+func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, budget time.Duration, transcriptDir string) (*Entry, error) {
 	if err := d.Available(ctx); err != nil {
 		return nil, err
 	}
@@ -72,11 +75,21 @@ func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, bud
 		return nil, err
 	}
 
+	transcript := filepath.Join(scratch, "transcript.jsonl")
+	if transcriptDir != "" {
+		if err := os.MkdirAll(transcriptDir, 0o755); err != nil {
+			return nil, err
+		}
+		transcript = filepath.Join(transcriptDir,
+			fmt.Sprintf("%s-%s-%s.jsonl", entry.Problem, entry.Seed, pack))
+	}
 	attempt, runErr := d.Run(ctx, Task{
-		Problem: entry.Problem, Prompt: prompt, Dir: scratch, Budget: budget, Env: env,
+		Problem: entry.Problem, Prompt: prompt, Dir: scratch,
+		Transcript: transcript, Budget: budget, Env: env,
 	})
 	if attempt != nil {
 		entry.Model, entry.Turns = attempt.Model, attempt.Turns
+		entry.Transcript = attempt.Transcript
 	}
 	if runErr != nil {
 		entry.Verdict, entry.Notes = Inconclusive, runErr.Error()

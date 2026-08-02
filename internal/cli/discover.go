@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +115,49 @@ func reconcile(rows []sessionRow, known map[string]*interview.Session, hosts []r
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// adopt rebuilds a session record for a host this machine has no record of,
+// so end can destroy what sessions --remote can see. Everything endRemote
+// needs is derivable without the registry: the state key is the seed, the
+// problem is a tag the module set, and the evidence prefix is the bucket and
+// the seed. Without this a stranded host is visible and untouchable, and
+// hand-run terraform is the only way to stop it billing.
+func adopt(ctx context.Context, seed string, cfg *interview.AWSSetup, infra string) (*interview.Session, error) {
+	hosts, err := describeHosts(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(hosts, func(h remoteHost) bool { return h.Seed == seed })
+	if i < 0 {
+		return nil, fmt.Errorf("no running host is tagged %s", seed)
+	}
+	root, err := infraRoot(infra)
+	if err != nil {
+		return nil, err
+	}
+	return &interview.Session{
+		Seed: seed, Problem: hosts[i].Problem, Mode: interview.AWS,
+		CreatedAt: hosts[i].LaunchedAt, TTLMinutes: hosts[i].TTLMinutes,
+		TerraformDir: filepath.Join(root, "interview"),
+		Evidence:     "s3://" + cfg.Bucket + "/" + seed + "/",
+	}, nil
+}
+
+// adoptOrNot is adopt for the case where there may be nothing to adopt. A nil
+// session with a nil error means the question does not apply: no seed, or no
+// cloud on this machine. A non-nil error is worth showing beside the missing
+// record, because it says the account was asked and could not answer.
+func adoptOrNot(seed string) (*interview.Session, error) {
+	cfg := interview.LoadConfig().AWS
+	if seed == "" || cfg == nil {
+		return nil, nil
+	}
+	rec, err := adopt(context.Background(), seed, cfg, "")
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
 }
 
 // describeHosts asks EC2 which interview instances exist. Terminated ones are

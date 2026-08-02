@@ -157,6 +157,17 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 	}
 	rec, err := currentOr(seed, stderr)
 	if err != nil {
+		// sessions --remote can see a host another machine started, or one
+		// whose record this machine lost. Refusing to end it would leave
+		// hand-run terraform as the only way to stop it billing, so ask the
+		// account whether the seed names something real before giving up.
+		if adopted, aerr := adoptOrNot(seed); adopted != nil {
+			fmt.Fprintf(stderr, "no record of %s here; ending it from the account\n", seed)
+			return endRemote(adopted, stdout, stderr)
+		} else if aerr != nil {
+			fmt.Fprintf(stderr, "interviews end: %v\n%s\n", err, aerr)
+			return 1
+		}
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
 		return 1
 	}

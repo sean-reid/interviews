@@ -9,7 +9,7 @@ import (
 
 // ProbesPath is the live-review question bank every take-home must ship.
 // The score comes from that review, not from the submitted artifact.
-const ProbesPath = "interviewer/probes.md"
+const ProbesPath = content.ProbesPath
 
 // Validate checks the rules specific to take-home problems, on top of the
 // generic content validation. The registry runs it at load time.

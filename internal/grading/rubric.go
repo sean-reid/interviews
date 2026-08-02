@@ -5,13 +5,11 @@
 package grading
 
 import (
-	"bytes"
 	_ "embed"
 	"fmt"
 	"slices"
 
-	"gopkg.in/yaml.v3"
-
+	"github.com/sean-reid/interviews/internal/content"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
@@ -44,10 +42,8 @@ func Default() (*Rubric, error) {
 
 // Parse decodes and validates a rubric.
 func Parse(raw []byte) (*Rubric, error) {
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
 	var r Rubric
-	if err := dec.Decode(&r); err != nil {
+	if err := content.DecodeStrict(raw, &r); err != nil {
 		return nil, fmt.Errorf("cannot decode rubric: %w", err)
 	}
 	if err := r.validate(); err != nil {

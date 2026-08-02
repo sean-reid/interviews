@@ -106,17 +106,22 @@ func convertOverride(name string, spec content.ParamSpec, raw string) (any, erro
 
 // paramRNG derives an independent deterministic stream per parameter.
 func paramRNG(problemID, interviewID, param string) *rand.Rand {
+	sum := HashParts(problemID, interviewID, param)
+	return rand.New(rand.NewPCG(
+		binary.BigEndian.Uint64(sum[0:8]),
+		binary.BigEndian.Uint64(sum[8:16]),
+	))
+}
+
+// HashParts digests parts with each one length-prefixed, so no two part
+// lists share a digest.
+func HashParts(parts ...string) []byte {
 	h := sha256.New()
-	for _, s := range []string{problemID, interviewID, param} {
-		// Length-prefix each part so no two input triples share a digest.
+	for _, s := range parts {
 		var n [4]byte
 		binary.BigEndian.PutUint32(n[:], uint32(len(s)))
 		h.Write(n[:])
 		h.Write([]byte(s))
 	}
-	sum := h.Sum(nil)
-	return rand.New(rand.NewPCG(
-		binary.BigEndian.Uint64(sum[0:8]),
-		binary.BigEndian.Uint64(sum[8:16]),
-	))
+	return h.Sum(nil)
 }

@@ -4,7 +4,10 @@
 // elsewhere (providers, harnesses, rubrics); adding one is a deliberate act.
 package taxonomy
 
-import "slices"
+import (
+	"regexp"
+	"slices"
+)
 
 // Type is an interview type. Each type has its own engine and content shape.
 type Type string
@@ -88,3 +91,10 @@ func ValidDiscipline(v Discipline) bool { return slices.Contains(Disciplines, v)
 
 // ValidLevel reports whether v names a known level band.
 func ValidLevel(v Level) bool { return slices.Contains(Levels, v) }
+
+// idRe is the shape of every id in the content tree: problem ids, fault
+// ids, tension and curveball ids.
+var idRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// ValidID reports whether s is a kebab-case id.
+func ValidID(s string) bool { return idRe.MatchString(s) }

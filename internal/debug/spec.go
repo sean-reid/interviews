@@ -5,18 +5,17 @@
 package debug
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 
-	"gopkg.in/yaml.v3"
-
+	"github.com/sean-reid/interviews/internal/content"
+	"github.com/sean-reid/interviews/internal/leak"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
 const (
 	// EnvManifest declares the environment substrate, relative to the problem.
-	EnvManifest = "env.yaml"
+	EnvManifest = leak.EnvFile
 	// FaultsDir holds one directory per fault. Always interviewer-only.
 	FaultsDir = "faults"
 	// PackParam is the manifest parameter that selects the fault pack.
@@ -143,18 +142,12 @@ var providersByFlavor = map[taxonomy.Flavor][]string{
 	taxonomy.ComposeLinux: {"compose"},
 }
 
-func decodeStrict(raw []byte, out any) error {
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	return dec.Decode(out)
-}
-
 func readYAML(fsys fs.FS, path string, out any) error {
 	raw, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return fmt.Errorf("missing %s", path)
 	}
-	if err := decodeStrict(raw, out); err != nil {
+	if err := content.DecodeStrict(raw, out); err != nil {
 		return fmt.Errorf("cannot decode %s: %v", path, err)
 	}
 	return nil

@@ -6,15 +6,13 @@
 package sysdesign
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
-	"regexp"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/sean-reid/interviews/internal/content"
+	"github.com/sean-reid/interviews/internal/leak"
+	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
 // Required paths in every system design problem.
@@ -23,9 +21,9 @@ const (
 	// and the deliverable spec.
 	ConstraintsPath = "candidate/constraints.md"
 	// ReviewManifest declares the live-review material.
-	ReviewManifest = "review.yaml"
+	ReviewManifest = leak.ReviewFile
 	// ProbesPath is the interviewer's question bank for the review.
-	ProbesPath = "interviewer/probes.md"
+	ProbesPath = content.ProbesPath
 	// ReferencePath is one or more worked designs for calibration only.
 	ReferencePath = "interviewer/reference.md"
 )
@@ -62,8 +60,6 @@ type Curveball struct {
 	RedFlag  string `yaml:"red_flag"`
 }
 
-var idRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-
 // Load reads review.yaml and checks the problem carries both halves of the
 // exercise. Like content.Load it returns every issue it finds.
 func Load(p *content.Problem) (*Review, []content.Issue) {
@@ -72,16 +68,14 @@ func Load(p *content.Problem) (*Review, []content.Issue) {
 		return nil, []content.Issue{{Path: ReviewManifest,
 			Msg: "system design problems need a review manifest with tensions and curveballs"}}
 	}
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
 	var r Review
-	if err := dec.Decode(&r); err != nil {
+	if err := content.DecodeStrict(raw, &r); err != nil {
 		return nil, []content.Issue{{Path: ReviewManifest, Msg: fmt.Sprintf("cannot decode: %v", err)}}
 	}
 
 	var issues []content.Issue
 	add := func(path, format string, args ...any) {
-		issues = append(issues, content.Issue{Path: path, Msg: fmt.Sprintf(format, args...)})
+		issues = append(issues, content.Issuef(path, format, args...))
 	}
 
 	if len(r.Tensions) == 0 {
@@ -90,7 +84,7 @@ func Load(p *content.Problem) (*Review, []content.Issue) {
 	seen := map[string]bool{}
 	for i, t := range r.Tensions {
 		where := fmt.Sprintf("tensions[%d]", i)
-		if !idRe.MatchString(t.ID) {
+		if !taxonomy.ValidID(t.ID) {
 			add(ReviewManifest, "%s.id: %q must be kebab-case", where, t.ID)
 		}
 		if seen[t.ID] {
@@ -108,7 +102,7 @@ func Load(p *content.Problem) (*Review, []content.Issue) {
 	seen = map[string]bool{}
 	for i, c := range r.Curveballs {
 		where := fmt.Sprintf("curveballs[%d]", i)
-		if !idRe.MatchString(c.ID) {
+		if !taxonomy.ValidID(c.ID) {
 			add(ReviewManifest, "%s.id: %q must be kebab-case", where, c.ID)
 		}
 		if seen[c.ID] {

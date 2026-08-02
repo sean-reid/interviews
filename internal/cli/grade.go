@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/grading"
 	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/registry"
@@ -37,47 +35,11 @@ func cmdGrade(args []string, stdout, stderr io.Writer) int {
 
 // gradeTarget resolves the shared plumbing: problem, variant, workdir.
 func gradeTarget(contentRoot, problemID, seed, workdir string, sets []string, stderr io.Writer) (*registry.Entry, *variant.Resolved, string, string, error) {
-	seed, workdir, err := resolveTarget(seed, workdir, stderr)
+	r, err := resolveProblem(contentRoot, problemID, seed, workdir, sets, stderr)
 	if err != nil {
 		return nil, nil, "", "", err
 	}
-	overrides, err := parseOverrides(sets)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-	reg, err := openRegistry(contentRoot, false, stderr)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-	entry, ok := reg.Get(problemID)
-	if !ok {
-		return nil, nil, "", "", fmt.Errorf("no problem %q (try interviews list)", problemID)
-	}
-	v, err := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, overrides)
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-	if workdir == "" {
-		if workdir, err = debug.DefaultWorkdir(v); err != nil {
-			return nil, nil, "", "", err
-		}
-	}
-	// The environment recorded what it was built with. Re-deriving the
-	// variant from the seed alone lets a sheet name one fault pack above a
-	// fault table that came from another. An explicit --set still wins.
-	if st, serr := debug.LoadState(workdir); serr == nil && len(st.Overrides) > 0 {
-		merged := maps.Clone(st.Overrides)
-		maps.Copy(merged, overrides)
-		if !maps.Equal(merged, overrides) {
-			recorded, rerr := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, merged)
-			if rerr != nil {
-				fmt.Fprintf(stderr, "warning: ignoring the overrides recorded in %s: %v\n", debug.StateFile, rerr)
-			} else {
-				v = recorded
-			}
-		}
-	}
-	return entry, v, workdir, seed, nil
+	return r.entry, r.variant, r.workdir, r.seed, nil
 }
 
 func gradeSheet(args []string, stdout, stderr io.Writer) int {

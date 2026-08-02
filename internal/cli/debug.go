@@ -11,7 +11,6 @@ import (
 	"github.com/sean-reid/interviews/internal/content"
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/taxonomy"
-	"github.com/sean-reid/interviews/internal/variant"
 )
 
 // answerKeyNotice heads the output that names the injected faults. Both
@@ -21,39 +20,23 @@ const answerKeyNotice = "-- interviewer only: this names the faults. Do not shar
 // engineFor loads a debugging problem and builds its engine. Every
 // debugging command funnels through here.
 func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdout, stderr io.Writer) (*debug.Engine, error) {
-	seed, workdir, err := resolveTarget(seed, workdir, stderr)
+	r, err := resolveProblem(contentRoot, problemID, seed, workdir, sets, stderr)
 	if err != nil {
 		return nil, err
 	}
-	overrides, err := parseOverrides(sets)
-	if err != nil {
-		return nil, err
+	if r.entry.Type != taxonomy.Debugging {
+		return nil, fmt.Errorf("%s is a %s problem; only debugging problems run environments", problemID, r.entry.Type)
 	}
-	reg, err := openRegistry(contentRoot, false, stderr)
-	if err != nil {
-		return nil, err
-	}
-	entry, ok := reg.Get(problemID)
-	if !ok {
-		return nil, fmt.Errorf("no problem %q (try interviews list)", problemID)
-	}
-	if entry.Type != taxonomy.Debugging {
-		return nil, fmt.Errorf("%s is a %s problem; only debugging problems run environments", problemID, entry.Type)
-	}
-	scenario, issues := debug.LoadScenario(entry.Problem)
+	scenario, issues := debug.LoadScenario(r.entry.Problem)
 	if scenario == nil || content.Errors(issues) {
 		return nil, fmt.Errorf("scenario invalid; run interviews validate: %v", issues)
 	}
-	v, err := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, overrides)
-	if err != nil {
-		return nil, err
-	}
-	dir, err := filepath.Abs(filepath.Join(contentRoot, entry.Dir))
+	dir, err := filepath.Abs(filepath.Join(contentRoot, r.entry.Dir))
 	if err != nil {
 		return nil, err
 	}
 	runner := &debug.ExecRunner{Stdout: stdout, Stderr: stderr}
-	return debug.NewEngine(dir, scenario, v, runner, stdout, workdir)
+	return debug.NewEngine(dir, scenario, r.variant, runner, stdout, r.workdir)
 }
 
 // debugFlags parses the flags every debugging command shares.

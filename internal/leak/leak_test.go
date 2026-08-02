@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -285,5 +286,53 @@ func TestScanRejectsHardlinks(t *testing.T) {
 	}
 	if slices.Contains(s.Candidate, "candidate/util.md") {
 		t.Error("hardlink to an answer key was classified candidate-visible")
+	}
+}
+
+// A directory that looks exactly like interviewer/ to a human but is not
+// ASCII must not publish. EqualFold is simple case folding, so it folds
+// Interviewer but not a dotted capital I, a Cyrillic e, a fullwidth i, or a
+// name carrying a zero-width space. An answer key under any of those shipped.
+func TestLookalikeInterviewerDirsAreProtected(t *testing.T) {
+	// Positive control: the plain spelling folds, so the loop below is
+	// testing the folding path and not a blanket true.
+	if !Protected("candidate/Interviewer/key.md") {
+		t.Fatal("the ascii spelling is not protected; this test proves nothing")
+	}
+	if Protected("candidate/brief.md") {
+		t.Fatal("an ordinary candidate path reads as protected; this test proves nothing")
+	}
+	for _, name := range []string{
+		"candidate/İnterviewer/key.md",  // dotted capital I
+		"candidate/intеrviewer/key.md",  // cyrillic e
+		"candidate/ｉnterviewer/key.md",  // fullwidth i
+		"candidate/interviewer​/key.md", // trailing zero width space
+		"candidate/fаults/01/notes.md",  // cyrillic a in faults
+	} {
+		if !Protected(name) {
+			t.Errorf("%q is publishable, so an answer key under it ships", name)
+		}
+	}
+}
+
+// Protecting the path keeps the key in, but an author who meant to ship a
+// file has to be told rather than left wondering where it went.
+func TestNonASCIIPathsAreARejection(t *testing.T) {
+	c, err := NewClassifier([]string{"candidate/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.Scan(fstest.MapFS{
+		"candidate/brief.md":  &fstest.MapFile{Data: []byte("ok")},
+		"candidate/café/x.md": &fstest.MapFile{Data: []byte("accented")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Irregular) != 1 || !strings.Contains(s.Irregular[0], "caf") {
+		t.Errorf("Irregular = %v, want the non-ascii path so validation rejects it", s.Irregular)
+	}
+	if !slices.Contains(s.Candidate, "candidate/brief.md") {
+		t.Errorf("the ordinary candidate file stopped shipping: %v", s.Candidate)
 	}
 }

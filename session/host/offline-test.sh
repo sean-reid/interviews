@@ -22,15 +22,10 @@ tarball=${1:-}
 if [ -z "$tarball" ]; then
   tarball=$(mktemp -d)/interviews.tar.gz
   echo "packing a tarball from $repo"
-  bin=$(mktemp -d)/interviews
-  (cd "$repo" && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o "$bin" ./cmd/interviews)
+  # The same code path setup aws uploads with, so this test provisions the
+  # layout a real host unpacks rather than a hand-rolled twin of it.
   content=${IV_TEST_CONTENT:-$repo/examples}
-  staging=$(mktemp -d)
-  mkdir -p "$staging/session"
-  cp "$bin" "$staging/interviews"
-  cp -R "$here" "$staging/session/host"
-  cp -R "$content" "$staging/content"
-  (cd "$staging" && tar czf "$tarball" interviews session content)
+  (cd "$repo" && go run ./cmd/interviews setup pack -o "$tarball" --content "$content")
 fi
 echo "tarball: $tarball ($(wc -c <"$tarball") bytes)"
 

@@ -172,7 +172,7 @@ func TestSynopsesAdvertiseOnlyRealFlags(t *testing.T) {
 	// A verb parent answers --help with its verbs, not a flag list, so its
 	// synopsis speaks for its leaves and is checked against their union.
 	leaves := map[string][]string{
-		"setup":    {"setup aws"},
+		"setup":    {"setup aws", "setup pack"},
 		"grade":    {"grade sheet", "grade score", "grade hint"},
 		"session":  {"session start", "session stop", "session evidence", "session timeline", "session kubeconfig", "session proxy"},
 		"sessions": {"sessions", "sessions show", "sessions log"},

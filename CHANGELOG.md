@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/sean-reid/interviews/compare/v0.5.0...v0.6.0) (2026-08-02)
+
+
+### Features
+
+* **cli:** find interview hosts the local registry does not know ([#19](https://github.com/sean-reid/interviews/issues/19)) ([002f994](https://github.com/sean-reid/interviews/commit/002f994c3f1d4ad93136b4acb6f70b6e3ac4ea1c))
+* **cli:** order sessions by who they are blocked on ([#17](https://github.com/sean-reid/interviews/issues/17)) ([a55dba0](https://github.com/sean-reid/interviews/commit/a55dba045fab56d6a0614091ee6389aee1f240ec))
+* make a remote interview work, and testable without one ([#13](https://github.com/sean-reid/interviews/issues/13)) ([3d4afc4](https://github.com/sean-reid/interviews/commit/3d4afc441a0d6041f09f915dd138e92b1a26b4a7))
+
+
+### Bug Fixes
+
+* close four leaks and a teardown bug found in the audit ([#24](https://github.com/sean-reid/interviews/issues/24)) ([2463f7c](https://github.com/sean-reid/interviews/commit/2463f7cdb8bc5d67ec79e4bbf55d35f32604a2c9))
+* **debug:** keep the faults a failed re-break already injected ([#62](https://github.com/sean-reid/interviews/issues/62)) ([402d9a3](https://github.com/sean-reid/interviews/commit/402d9a312abc5f2f204451bab248cd71cbfbd04f))
+* **debug:** pin the kind node image instead of inheriting one ([#20](https://github.com/sean-reid/interviews/issues/20)) ([0bafe22](https://github.com/sean-reid/interviews/commit/0bafe22c198c8453cf16dda34e551c4a6885e822))
+
 ## [0.5.0](https://github.com/sean-reid/interviews/compare/v0.4.0...v0.5.0) (2026-08-01)
 
 

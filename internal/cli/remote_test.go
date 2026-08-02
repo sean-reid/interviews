@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sean-reid/interviews/internal/interview"
 )
@@ -24,5 +27,58 @@ func TestBucketKeysStartWithTheReservedPrefixes(t *testing.T) {
 	}
 	if err := interview.ValidSeed(interview.TarballPrefix); err == nil {
 		t.Errorf("%q holds the shared tarball and is still an allowed seed", interview.TarballPrefix)
+	}
+}
+
+// stubTool puts a fake binary on PATH that logs its argv and prints out.
+func stubTool(t *testing.T, name, out string) string {
+	t.Helper()
+	bin := t.TempDir()
+	log := filepath.Join(bin, name+".calls")
+	script := "#!/bin/sh\necho \"$@\" >> " + log + "\n"
+	if out != "" {
+		script += "printf '%s\\n' " + "'" + out + "'\n"
+	}
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+// end leaves nothing per seed behind: each data dir carries its own full
+// copy of the AWS provider (3.2 GB across five seeds), and init must not
+// rewrite the module directory's tracked lockfile while it is at it.
+func TestEndRemoteCleansTheDataDirAndLeavesTheLockfileAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(interview.HomeEnv, home)
+	log := stubTool(t, "terraform", "")
+	if err := interview.SaveConfig(&interview.Config{AWS: &interview.AWSSetup{
+		Region: "eu-west-1", Bucket: "bucket", TarballURI: "s3://bucket/tarballs/interviews.tar.gz",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	rec := &interview.Session{Seed: "calm-bison-0801", Problem: "relay", Mode: interview.AWS,
+		CreatedAt: time.Now(), TerraformDir: t.TempDir()}
+	if err := interview.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut strings.Builder
+	if code := endRemote(rec, false, &out, &errOut); code != 0 {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out.String(), errOut.String())
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "-lockfile=readonly") {
+		t.Errorf("init may rewrite the tracked lockfile:\n%s", calls)
+	}
+	if _, err := os.Stat(filepath.Join(home, "terraform", rec.Seed)); !os.IsNotExist(err) {
+		t.Error("the per-seed terraform data dir survived the destroy")
+	}
+	if after, err := interview.Load(rec.Seed); err != nil || after.EndedAt.IsZero() {
+		t.Errorf("session not marked ended: %+v, %v", after, err)
 	}
 }

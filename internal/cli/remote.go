@@ -32,17 +32,27 @@ type remoteOptions struct {
 	Infra        string
 }
 
+// terraformDataDir is where one interview's terraform working data lives.
+// end removes it after a successful destroy: it holds that seed's own full
+// copy of the AWS provider, which nothing ever reads again.
+func terraformDataDir(seed string) (string, error) {
+	home, err := interview.Home()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "terraform", seed), nil
+}
+
 // terraformEnv gives one interview its own terraform data directory while
 // every session shares the module source. Without this, two sessions started
 // from the same checkout both reconfigure .terraform in place and fight over
 // which backend key it points at, which is not hypothetical: two concurrent
 // provisions did exactly that, and one came back with no host at all.
 func terraformEnv(profile, seed string) ([]string, error) {
-	home, err := interview.Home()
+	data, err := terraformDataDir(seed)
 	if err != nil {
 		return nil, err
 	}
-	data := filepath.Join(home, "terraform", seed)
 	if err := os.MkdirAll(data, 0o700); err != nil {
 		return nil, err
 	}
@@ -231,6 +241,14 @@ func endRemote(rec *interview.Session, purge bool, stdout, stderr io.Writer) int
 		fmt.Fprintf(stderr, "\nIf it says the state is locked and no other end is running, take the ID\nfrom that message and clear it:\n  terraform -chdir=%s force-unlock <id>\n", rec.TerraformDir)
 		return 1
 	}
+	// The data dir holds this seed's own copy of the AWS provider and its
+	// backend config, hundreds of megabytes nothing reads after the destroy;
+	// five interviews once left 3.2 GB of it behind.
+	if data, derr := terraformDataDir(rec.Seed); derr == nil {
+		if rerr := os.RemoveAll(data); rerr != nil {
+			fmt.Fprintf(stderr, "interviews end: could not remove %s: %v\n", data, rerr)
+		}
+	}
 	rec.EndedAt = time.Now()
 	if err := interview.Save(rec); err != nil {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
@@ -268,8 +286,13 @@ func tarballOf(c *interview.Config) string {
 // initBackend points the module at this interview's state key. Reconfigure
 // rather than migrate: the module directory is shared between sessions, and
 // each init is switching to a different interview's state, not moving one.
+// The lockfile is readonly for the same reason: TF_DATA_DIR moves the rest
+// of init's writes per seed, but .terraform.lock.hcl lands in the module
+// directory, where the checked-in copy is the pin and two concurrent starts
+// were both rewriting it.
 func initBackend(stdout, stderr io.Writer, env []string, dir string, a *interview.AWSSetup, seed string) error {
 	return runBounded(stdout, stderr, env, dir, initTimeout, "terraform", "init", "-input=false", "-reconfigure",
+		"-lockfile=readonly",
 		"-backend-config=bucket="+a.Bucket,
 		"-backend-config=key="+StateKey(seed),
 		"-backend-config=region="+a.Region,

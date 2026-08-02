@@ -265,6 +265,15 @@ func resolveProblem(contentRoot, problemID, seed, workdir string, sets []string,
 	if !ok {
 		return nil, fmt.Errorf("no problem %q (try interviews list)", problemID)
 	}
+	// The seed and the problem were resolved separately and never compared,
+	// so grade sheet on the wrong problem name rendered a full sheet, headed
+	// with that problem's title and carrying this session's interview id,
+	// and exited 0. The only signal was one stderr line naming the real
+	// session, which is the line people stop reading by interview three.
+	if rec, lerr := interview.Load(seed); lerr == nil && rec.Problem != "" && rec.Problem != problemID {
+		return nil, fmt.Errorf("session %s is %s, not %s; pass --seed for a different session",
+			seed, rec.Problem, problemID)
+	}
 	v, err := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, overrides)
 	if err != nil {
 		return nil, err

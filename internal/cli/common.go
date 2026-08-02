@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 
+	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/interview"
 	"github.com/sean-reid/interviews/internal/registry"
+	"github.com/sean-reid/interviews/internal/variant"
 )
 
 // DefaultContentRoot is the last resort when nothing says where content is.
@@ -217,6 +220,66 @@ func parseOverrides(pairs []string) (map[string]string, error) {
 // lives. It never fails on a seed the registry has never heard of, because
 // a lost or absent record has to degrade to the old behavior rather than
 // break a session in progress.
+// resolvedProblem is a problem, the variant to act on, and where that
+// environment's state lives.
+type resolvedProblem struct {
+	entry   *registry.Entry
+	variant *variant.Resolved
+	workdir string
+	seed    string
+}
+
+// resolveProblem turns a problem id and a seed into the variant to act on.
+//
+// The environment recorded what it was built with, and that beats re-deriving
+// from the seed: a session started with --set resolves to different parameters
+// without those same flags, so a command would act on values the candidate
+// never saw. An explicit --set still wins over both.
+//
+// This existed twice, and only the grading copy honoured the recorded
+// overrides, so the copy that touches the environment was the one acting on
+// the wrong parameters.
+func resolveProblem(contentRoot, problemID, seed, workdir string, sets []string, stderr io.Writer) (*resolvedProblem, error) {
+	seed, workdir, err := resolveTarget(seed, workdir, stderr)
+	if err != nil {
+		return nil, err
+	}
+	overrides, err := parseOverrides(sets)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := openRegistry(contentRoot, false, stderr)
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := reg.Get(problemID)
+	if !ok {
+		return nil, fmt.Errorf("no problem %q (try interviews list)", problemID)
+	}
+	v, err := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, overrides)
+	if err != nil {
+		return nil, err
+	}
+	if workdir == "" {
+		if workdir, err = debug.DefaultWorkdir(v); err != nil {
+			return nil, err
+		}
+	}
+	if st, serr := debug.LoadState(workdir); serr == nil && len(st.Overrides) > 0 {
+		merged := maps.Clone(st.Overrides)
+		maps.Copy(merged, overrides)
+		if !maps.Equal(merged, overrides) {
+			recorded, rerr := variant.Resolve(problemID, entry.Problem.Manifest.Params, seed, merged)
+			if rerr != nil {
+				fmt.Fprintf(stderr, "warning: ignoring the overrides recorded in %s: %v\n", debug.StateFile, rerr)
+			} else {
+				v = recorded
+			}
+		}
+	}
+	return &resolvedProblem{entry: entry, variant: v, workdir: workdir, seed: seed}, nil
+}
+
 func resolveTarget(seed, workdir string, stderr io.Writer) (string, string, error) {
 	if seed == "" {
 		s, err := interview.Current()

@@ -21,11 +21,6 @@ import (
 // Fail-closed: even a dataset that happens to contain one is rejected.
 var forbidden = []string{"interviewer/", "faults/", "{{"}
 
-// checkGate proves the finished bundle leaks nothing. It re-classifies
-// every written file with the problem's own classifier and fails on
-// anything that is not candidate-visible, then greps every file outside
-// .git for the forbidden markers. This runs over the output directory, not
-// the inputs, so a bug anywhere upstream still cannot ship a leak.
 // writtenPaths lists every file in the finished bundle.
 func writtenPaths(fsys fs.FS) []string {
 	var out []string
@@ -38,6 +33,11 @@ func writtenPaths(fsys fs.FS) []string {
 	return out
 }
 
+// checkGate proves the finished bundle leaks nothing. It re-classifies
+// every written file with the problem's own classifier and fails on
+// anything that is not candidate-visible, then greps every file outside
+// .git for the forbidden markers. This runs over the output directory, not
+// the inputs, so a bug anywhere upstream still cannot ship a leak.
 func checkGate(dir string, c *leak.Classifier) error {
 	fsys := os.DirFS(dir)
 	leaks, err := leak.Leaks(fsys, c)

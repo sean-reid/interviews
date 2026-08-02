@@ -153,6 +153,7 @@ func infraRoot(explicit string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	start := dir
 	for {
 		candidate := filepath.Join(dir, "infra", "aws")
 		if _, err := os.Stat(filepath.Join(candidate, "account")); err == nil {
@@ -160,13 +161,11 @@ func infraRoot(explicit string) (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("no infra/aws above %s: run this from a checkout of the platform, or pass --infra", must(os.Getwd()))
+			return "", fmt.Errorf("no infra/aws above %s: run this from a checkout of the platform, or pass --infra", start)
 		}
 		dir = parent
 	}
 }
-
-func must(s string, _ error) string { return s }
 
 // callerIdentity reports who the AWS calls will be made as.
 func callerIdentity(env []string) (string, error) {

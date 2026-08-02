@@ -94,7 +94,7 @@ func DebugRun(ctx context.Context, e *debug.Engine, d Driver, out io.Writer, bud
 		}
 	}
 	entry.Verified = e.Verify(ctx) == nil
-	entry.Verdict = Judge(entry.Fixed, entry.Total, entry.Verified)
+	entry.Verdict = Judge(*entry)
 	if attempt != nil && attempt.TimedOut {
 		entry.Notes = "budget reached, which is the expected ending"
 	}

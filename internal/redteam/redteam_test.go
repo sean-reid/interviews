@@ -48,7 +48,7 @@ func TestJudge(t *testing.T) {
 		{0, 0, false, Inconclusive},
 	}
 	for _, tt := range tests {
-		got := Judge(tt.fixed, tt.total, tt.verified)
+		got := Judge(Entry{Fixed: tt.fixed, Total: tt.total, Verified: tt.verified})
 		if got != tt.want {
 			t.Errorf("Judge(%d, %d, %v) = %q, want %q", tt.fixed, tt.total, tt.verified, got, tt.want)
 		}
@@ -57,10 +57,10 @@ func TestJudge(t *testing.T) {
 
 func TestJudgeThreshold(t *testing.T) {
 	// Exactly at the threshold counts as too easy; just under holds.
-	if got := Judge(6, 10, false); got != TooEasy {
+	if got := Judge(Entry{Fixed: 6, Total: 10}); got != TooEasy {
 		t.Errorf("6/10 = %q, want too-easy", got)
 	}
-	if got := Judge(5, 10, false); got != Holds {
+	if got := Judge(Entry{Fixed: 5, Total: 10}); got != Holds {
 		t.Errorf("5/10 = %q, want holds", got)
 	}
 }

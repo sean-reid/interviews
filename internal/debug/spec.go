@@ -73,9 +73,10 @@ type KindSpec struct {
 	// templates with the resolved variant before applying.
 	Manifests string `yaml:"manifests"`
 	// Namespace is where the app lives; rendered as a template. Candidate
-	// RBAC (stage 4) scopes here.
+	// RBAC scopes here.
 	Namespace string `yaml:"namespace"`
-	// NodeImage pins the kind node image; empty means kind's default.
+	// NodeImage pins the kind node image; empty means the platform's own
+	// pin, DefaultNodeImage in kind.go, not whatever this kind defaults to.
 	NodeImage string `yaml:"node_image,omitempty"`
 	// Build are local images built from the problem tree and loaded into
 	// the cluster, so nothing depends on a registry.

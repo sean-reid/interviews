@@ -91,7 +91,6 @@ type ContentSource string
 
 // Where a resolved content root came from, in resolution order.
 const (
-	FromFlag     ContentSource = "--content"
 	FromConfig   ContentSource = "config"
 	FromEnv      ContentSource = ContentSource(ContentEnv)
 	FromFallback ContentSource = "default"

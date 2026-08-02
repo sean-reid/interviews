@@ -111,9 +111,7 @@ func cmdVersion(_ []string, stdout, _ io.Writer) int {
 	return 0
 }
 
-// cmdHelp prints the top-level menu, or one command's own help. It used to
-// ignore its argument, so the obvious way to ask about a command answered
-// with the menu you were already looking at.
+// cmdHelp prints the top-level menu, or one command's own help.
 func cmdHelp(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stdout, usage)

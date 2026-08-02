@@ -243,9 +243,9 @@ func parseOverrides(pairs []string) (map[string]string, error) {
 
 // resolveTarget fills in what the registry already knows: the session a
 // command means when no --seed is given, and where that session's state
-// lives. It never fails on a seed the registry has never heard of, because
-// a lost or absent record has to degrade to the old behavior rather than
-// break a session in progress.
+// lives. It never fails on a seed the registry has never heard of: a lost
+// or absent record degrades to acting on what was passed rather than
+// breaking a session in progress.
 // resolvedProblem is a problem, the variant to act on, and where that
 // environment's state lives.
 type resolvedProblem struct {

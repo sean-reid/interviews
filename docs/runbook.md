@@ -111,7 +111,8 @@ What the policy allows, and why each part is there:
 | network and image reads | the modules look up the default VPC, its subnets, and the Ubuntu AMI |
 | session host lifecycle | security group, elastic IP, instance, and their tags |
 | role and profile under `iv-*` | the host needs an instance role, and only under that prefix |
-| `iam:PassRole` to ec2 only | attaching that role to the instance, and nothing else |
+| `iam:PassRole` to ec2, under `iv-*` | attaching that role to the instance, and nothing else |
+| `iam:PassRole` to lambda, `iv-reaper` only | the reaper runs as a role, and creating a function that has one is a pass |
 | the evidence bucket | create and configure it once, then write evidence and read the tarball; the long list of bucket reads is terraform reading back `aws_s3_bucket` |
 
 `Describe*` calls cannot be scoped to a resource, so those are `"Resource": "*"`

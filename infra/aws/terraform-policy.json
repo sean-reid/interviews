@@ -113,6 +113,19 @@
       }
     },
     {
+      "Sid": "HandTheReaperRoleToLambda",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/iv-reaper",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    },
+    {
       "Sid": "ReaperFunctionOnlyUnderTheIvPrefix",
       "Effect": "Allow",
       "Action": [

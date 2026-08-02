@@ -248,6 +248,7 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	fs := newBareFlagSet("sessions", stderr)
 	all := fs.Bool("all", false, "include sessions that have ended")
 	waiting := fs.Bool("waiting", false, "only sessions that need something from you")
+	remote := fs.Bool("remote", false, "ask AWS what is running, including hosts other machines started")
 	if _, err := parsePermuted(fs, args); err != nil {
 		return 2
 	}
@@ -256,41 +257,72 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews sessions: %v\n", err)
 		return 1
 	}
+	// Every seed this machine has ever recorded, kept before the filter below
+	// so a discovered host can be told from one that merely ended here.
+	known := make(map[string]*interview.Session, len(list))
+	for _, s := range list {
+		known[s.Seed] = s
+	}
 	if !*all {
 		list = slices.DeleteFunc(list, func(s *interview.Session) bool { return !s.EndedAt.IsZero() })
 	}
-	type row struct {
-		s     *interview.Session
-		state string
-		rank  int
-	}
-	rows := make([]row, 0, len(list))
+	rows := make([]sessionRow, 0, len(list))
 	for _, s := range list {
 		state, rank := sessionStatus(s)
-		if *waiting && rank > waitingCutoff {
-			continue
+		rows = append(rows, sessionRow{s: s, state: state, rank: rank})
+	}
+	stranded := 0
+	if *remote {
+		cfg := interview.LoadConfig().AWS
+		if cfg == nil {
+			fmt.Fprintln(stderr, "interviews sessions: this machine has no aws setup (interviews setup aws)")
+			return 1
 		}
-		rows = append(rows, row{s, state, rank})
+		ctx := context.Background()
+		hosts, err := describeHosts(ctx, cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "interviews sessions: %v\n", err)
+			return 1
+		}
+		rows = reconcile(rows, known, hosts)
+		if stranded, err = strandedAddresses(ctx, cfg); err != nil {
+			fmt.Fprintf(stderr, "interviews sessions: %v\n", err)
+			return 1
+		}
+	}
+	if *waiting {
+		rows = slices.DeleteFunc(rows, func(r sessionRow) bool { return r.rank > waitingCutoff })
 	}
 	// Stable, so List's newest-first order breaks ties within a rank.
-	slices.SortStableFunc(rows, func(a, b row) int { return cmp.Compare(a.rank, b.rank) })
+	slices.SortStableFunc(rows, func(a, b sessionRow) int { return cmp.Compare(a.rank, b.rank) })
 	if len(rows) == 0 {
-		if *waiting {
+		switch {
+		case *waiting:
 			fmt.Fprintln(stdout, "nothing is waiting on you")
-			return 0
+		default:
+			fmt.Fprintln(stdout, "no sessions (interviews start <problem> begins one)")
 		}
-		fmt.Fprintln(stdout, "no sessions (interviews start <problem> begins one)")
+		reportStranded(stdout, stranded)
 		return 0
 	}
 	w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
 	fmt.Fprintln(w, "SEED\tPROBLEM\tMODE\tAGE\tSTATE\tEVIDENCE")
+	elsewhere := false
 	for _, r := range rows {
+		seed := r.s.Seed
+		if r.elsewhere {
+			seed, elsewhere = seed+" *", true
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			r.s.Seed, r.s.Problem, r.s.Mode, age(time.Since(r.s.CreatedAt)), r.state, evidenceNote(r.s))
+			seed, r.s.Problem, r.s.Mode, age(time.Since(r.s.CreatedAt)), r.state, evidenceNote(r.s))
 	}
 	if err := w.Flush(); err != nil {
 		return 1
 	}
+	if elsewhere {
+		fmt.Fprintln(stdout, "\n* running in the account, with no record on this machine")
+	}
+	reportStranded(stdout, stranded)
 	switch {
 	case *waiting:
 		fmt.Fprintln(stdout, "\nwaiting on you, most urgent first")
@@ -298,6 +330,15 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "\n--waiting narrows this to what needs you, --all includes sessions that have ended")
 	}
 	return 0
+}
+
+func reportStranded(stdout io.Writer, n int) {
+	switch {
+	case n == 1:
+		fmt.Fprintln(stdout, "\n1 elastic ip is attached to nothing and billing; interviews end releases it")
+	case n > 1:
+		fmt.Fprintf(stdout, "\n%d elastic ips are attached to nothing and billing; interviews end releases them\n", n)
+	}
 }
 
 func sessionsShow(args []string, stdout, stderr io.Writer) int {
@@ -389,11 +430,24 @@ func currentOr(seed string, stderr io.Writer) (*interview.Session, error) {
 // workdir and never trusted from the record, because a session whose state
 // file is gone is over whether or not anyone ran end. For the offline types
 // there is no substrate to read, so the recorded stage is the answer.
+// sessionRow is one line of a listing: a session, what it is doing, and
+// where that sorts. Discovered hosts get one too, with a session assembled
+// from tags rather than read from the registry.
+type sessionRow struct {
+	s         *interview.Session
+	state     string
+	rank      int
+	elsewhere bool
+}
+
 // Listing order, by who a session is blocked on. Everything before
 // waitingCutoff needs the interviewer to do something; everything after it is
 // waiting on the candidate, on the clock, or on nobody.
 const (
-	rankPastTTL = iota
+	// rankStranded is where AWS and the record disagree: a host past its ttl,
+	// one the record does not know about, or a record whose host is gone.
+	// First, because every one of them either bills or hides something.
+	rankStranded = iota
 	rankToReview
 	rankOverdue
 	rankNotSent
@@ -430,7 +484,7 @@ func sessionStatus(s *interview.Session) (string, int) {
 			if left <= 0 {
 				// Sorted first because it is the only state that bills by the
 				// hour until someone runs end.
-				return "past its ttl", rankPastTTL
+				return "past its ttl", rankStranded
 			}
 			return "up, " + age(left) + " of ttl left", rankLive
 		}

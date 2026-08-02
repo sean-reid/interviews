@@ -51,7 +51,7 @@ var synopses = map[string]string{
 	"start":    `interviews start <problem-id> [--level senior] [--seed id] [--no-break] [--remote [--ttl 120] [--instance-type t]]`,
 	"hint":     `interviews hint "what you told them" [--minute n] [--seed id]`,
 	"end":      `interviews end [<seed>] [--purge]`,
-	"sessions": `interviews sessions [--all] [--waiting] | sessions show [<seed>] | sessions log [<seed>] [--follow]`,
+	"sessions": `interviews sessions [--all] [--waiting] [--remote] | sessions show [<seed>] | sessions log [<seed>] [--follow]`,
 	"list":     `interviews list [--type TYPE] [--level LEVEL] [--json]`,
 	"describe": `interviews describe <problem-id> [--seed id] [--json]`,
 	"validate": `interviews validate [--content dir]`,

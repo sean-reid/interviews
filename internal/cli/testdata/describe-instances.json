@@ -1,0 +1,37 @@
+{
+  "Reservations": [
+    {
+      "Instances": [
+        {
+          "LaunchTime": "2026-08-02T00:04:38+00:00",
+          "State": {
+            "Code": 16,
+            "Name": "running"
+          },
+          "Tags": [
+            {
+              "Key": "ManagedBy",
+              "Value": "interviews"
+            },
+            {
+              "Key": "Problem",
+              "Value": "relay"
+            },
+            {
+              "Key": "TTLMinutes",
+              "Value": "30"
+            },
+            {
+              "Key": "Name",
+              "Value": "iv-relay-quiet-badger-0801"
+            },
+            {
+              "Key": "Interview",
+              "Value": "quiet-badger-0801"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

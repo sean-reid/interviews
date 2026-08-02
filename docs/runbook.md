@@ -222,3 +222,18 @@ interviews grade sheet <problem> --seed calm-bison-0731 \
 Tear down with `terraform destroy`. If you forget, the host powers off at
 the TTL (default 120 minutes) and terminates itself; the EIP and security
 group still want the destroy.
+
+## Finding a host nobody is watching
+
+The session registry lives on the machine that ran `start`, so it cannot say
+what is running anywhere else. `interviews sessions --remote` asks the account
+instead, matching the tags the module puts on every resource:
+
+```sh
+interviews sessions --remote
+```
+
+It shows three things the local list cannot: a host another machine
+provisioned, marked `*`; a host still up after `end` reported it destroyed;
+and elastic IPs attached to nothing. Run it after any interrupted provision. A
+terminated instance stops costing on its own, an elastic IP does not.

@@ -388,10 +388,12 @@ func (e *Engine) Break(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Record each fault as it lands. A pack that fails partway has still
-	// broken the environment, and a state file that forgets which faults are
-	// in there leaves nothing able to check or fix them.
-	st.Injected = nil
+	// Record each fault as it lands, and never drop what is already recorded.
+	// A pack that fails partway has still broken the environment, and a state
+	// file that forgets which faults are in there leaves nothing able to check
+	// or fix them. Clearing the list up front turned a re-break whose first
+	// inject failed into a state claiming an untouched cluster, while every
+	// fault from the earlier break was still live and the score read 0/0.
 	for _, f := range e.Scenario.PackFaults(st.Pack) {
 		e.logf("inject %s (%s)", f.Spec.ID, f.Spec.Tier)
 		if err := e.script(ctx, f.Script("inject.sh"), nil); err != nil {
@@ -400,7 +402,9 @@ func (e *Engine) Break(ctx context.Context) error {
 			}
 			return fmt.Errorf("inject %s: %w", f.Spec.ID, err)
 		}
-		st.Injected = append(st.Injected, f.Spec.ID)
+		if !slices.Contains(st.Injected, f.Spec.ID) {
+			st.Injected = append(st.Injected, f.Spec.ID)
+		}
 		if err := e.saveState(st); err != nil {
 			return err
 		}

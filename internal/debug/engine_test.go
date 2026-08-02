@@ -715,3 +715,41 @@ func TestUpAfterTeardownForgetsTheInjectedFaults(t *testing.T) {
 		t.Error("state still reads as torn down after env up")
 	}
 }
+
+// A re-break used to clear the injected list before injecting anything, so a
+// first inject that failed left the state claiming an untouched environment
+// while every fault from the earlier break was still in the cluster. Grading
+// reads that list: the candidate fixed everything and scored 0/0.
+func TestReBreakThatFailsKeepsTheFaultsItAlreadyRecorded(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-b"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Break(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st, err := e.loadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := slices.Clone(st.Injected)
+	if len(first) < 2 {
+		t.Fatalf("pack-b recorded %v; this test needs at least two faults", first)
+	}
+
+	// Re-break with the first fault's inject failing, the shape a script that
+	// is not idempotent produces.
+	r.on(first[0]+"/inject.sh", exitStatus(1))
+	if err := e.Break(ctx); err == nil {
+		t.Fatal("a failing inject should be reported")
+	}
+	after, err := e.loadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(after.Injected, first) {
+		t.Errorf("injected = %v after a failed re-break, want the %v still in the cluster",
+			after.Injected, first)
+	}
+}

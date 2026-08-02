@@ -122,7 +122,10 @@ func path(seed string) (string, error) {
 	return filepath.Join(dir, seed+".json"), nil
 }
 
-// Save writes a session record and makes it current.
+// Save writes a session record. It does not touch the current marker:
+// "most recently written" and "the one I am working in" are different
+// things, and they come apart exactly when a session ends or when a second
+// interview is prepared beside a live one. Callers say which they mean.
 func Save(s *Session) error {
 	if err := ValidSeed(s.Seed); err != nil {
 		return err
@@ -140,10 +143,7 @@ func Save(s *Session) error {
 	}
 	// The record carries both URL tokens, which are the only thing standing
 	// between the internet and a shell.
-	if err := fileio.WriteAtomic(p, raw, 0o600); err != nil {
-		return err
-	}
-	return SetCurrent(s.Seed)
+	return fileio.WriteAtomic(p, raw, 0o600)
 }
 
 // Load reads one session record.
@@ -218,6 +218,36 @@ func Remove(seed string) error {
 		}
 	}
 	return nil
+}
+
+// SetCurrentIfIdle points the marker at seed unless a live session already
+// holds it. Preparing the next candidate's take-home in a second terminal
+// must not silently retarget the hints of the interview in progress.
+func SetCurrentIfIdle(seed string) error {
+	if cur, err := Current(); err == nil && cur.Seed != seed && cur.EndedAt.IsZero() {
+		return nil
+	}
+	return SetCurrent(seed)
+}
+
+// ClearCurrent drops the marker if it names seed. An ended session is not
+// the one you are working in: leaving it current sent the next hint into a
+// workdir teardown had just deleted. Current falls back to the only open
+// session, so clearing is what lets that fallback do its job.
+func ClearCurrent(seed string) error {
+	cur, err := currentSeed()
+	if err != nil || cur != seed {
+		return nil
+	}
+	home, err := Home()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(home, currentFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // SetCurrent points the current marker at a seed.

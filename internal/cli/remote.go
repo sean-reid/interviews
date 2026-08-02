@@ -102,6 +102,10 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
 	}
+	if err := interview.SetCurrent(seed); err != nil {
+		fmt.Fprintf(stderr, "interviews start: %v\n", err)
+		return 1
+	}
 
 	if err := initBackend(stdout, stderr, env, dir, a, seed); err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
@@ -214,6 +218,10 @@ func endRemote(rec *interview.Session, stdout, stderr io.Writer) int {
 	}
 	rec.EndedAt = time.Now()
 	if err := interview.Save(rec); err != nil {
+		fmt.Fprintf(stderr, "interviews end: %v\n", err)
+		return 1
+	}
+	if err := interview.ClearCurrent(rec.Seed); err != nil {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
 		return 1
 	}

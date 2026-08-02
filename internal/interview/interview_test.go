@@ -75,6 +75,9 @@ func TestSaveLoadRoundTripsAndSetsCurrent(t *testing.T) {
 func TestRecordIsOwnerOnly(t *testing.T) {
 	dir := home(t)
 	save(t, "calm-bison-0731", time.Now(), time.Time{})
+	if err := SetCurrent("calm-bison-0731"); err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range []string{
 		filepath.Join(dir, "sessions", "calm-bison-0731.json"),
 		filepath.Join(dir, currentFile),
@@ -132,8 +135,8 @@ func TestCurrentFallsBackToTheOnlyOpenSession(t *testing.T) {
 	dir := home(t)
 	save(t, "calm-bison-0731", time.Now(), time.Time{})
 	save(t, "done-otter-0730", time.Now().Add(-time.Hour), time.Now())
-	if err := os.Remove(filepath.Join(dir, currentFile)); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(dir, currentFile)); !os.IsNotExist(err) {
+		t.Fatalf("saving a record wrote the marker; this test needs it absent (%v)", err)
 	}
 
 	cur, err := Current()
@@ -145,9 +148,6 @@ func TestCurrentFallsBackToTheOnlyOpenSession(t *testing.T) {
 	}
 
 	save(t, "keen-crane-0731", time.Now(), time.Time{})
-	if err := os.Remove(filepath.Join(dir, currentFile)); err != nil {
-		t.Fatal(err)
-	}
 	_, err = Current()
 	if err == nil {
 		t.Fatal("two open sessions and no marker resolved to one of them")
@@ -285,5 +285,83 @@ func TestValidSeedRejectsTheBucketsOwnPrefixes(t *testing.T) {
 		if err := ValidSeed(seed); err == nil {
 			t.Errorf("seed %q accepted, and it names a prefix the bucket already uses", seed)
 		}
+	}
+}
+
+// Ending a session used to make it current, because saving a record set the
+// marker and end saves the record it just ended. The next unqualified hint
+// then wrote into a workdir teardown had already deleted.
+func TestEndedSessionsDoNotStayCurrent(t *testing.T) {
+	home(t)
+	save(t, "calm-bison-0801", time.Now(), time.Time{})
+	if err := SetCurrent("calm-bison-0801"); err != nil {
+		t.Fatal(err)
+	}
+	save(t, "keen-crane-0801", time.Now(), time.Time{})
+	if err := SetCurrent("keen-crane-0801"); err != nil {
+		t.Fatal(err)
+	}
+	// Positive control: it really is current before it ends.
+	if cur, err := Current(); err != nil || cur.Seed != "keen-crane-0801" {
+		t.Fatalf("current = %v (%v), want keen-crane-0801; this test proves nothing", cur, err)
+	}
+
+	save(t, "keen-crane-0801", time.Now(), time.Now())
+	if err := ClearCurrent("keen-crane-0801"); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur.Seed != "calm-bison-0801" {
+		t.Errorf("current = %q after ending the other one, want the session still open", cur.Seed)
+	}
+}
+
+// Preparing the next candidate's take-home in a second terminal must not
+// repoint the hints of the interview in progress.
+func TestPreparingADropDoesNotStealALiveSession(t *testing.T) {
+	home(t)
+	save(t, "calm-bison-0801", time.Now(), time.Time{})
+	if err := SetCurrent("calm-bison-0801"); err != nil {
+		t.Fatal(err)
+	}
+	save(t, "brisk-ember-0801", time.Now(), time.Time{})
+	if err := SetCurrentIfIdle("brisk-ember-0801"); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := Current(); cur == nil || cur.Seed != "calm-bison-0801" {
+		t.Errorf("current = %v, want the live interview to keep it", cur)
+	}
+
+	// With nothing live, the drop is the obvious thing to mean.
+	save(t, "calm-bison-0801", time.Now(), time.Now())
+	if err := ClearCurrent("calm-bison-0801"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetCurrentIfIdle("brisk-ember-0801"); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := Current(); cur == nil || cur.Seed != "brisk-ember-0801" {
+		t.Errorf("current = %v, want the drop once nothing is live", cur)
+	}
+}
+
+// The contract the two tests above rest on: writing a record says nothing
+// about which session you are in. Coupling them is what made ending one
+// select it and preparing a drop steal a live interview.
+func TestSaveDoesNotTouchTheCurrentMarker(t *testing.T) {
+	dir := home(t)
+	if err := SetCurrent("calm-bison-0801"); err != nil {
+		t.Fatal(err)
+	}
+	save(t, "brisk-ember-0801", time.Now(), time.Time{})
+	raw, err := os.ReadFile(filepath.Join(dir, currentFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(raw)); got != "calm-bison-0801" {
+		t.Errorf("marker = %q after saving another record, want it untouched", got)
 	}
 }

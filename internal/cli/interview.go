@@ -269,6 +269,29 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// localRows reads the registry into listing rows. known keeps every seed
+// this machine ever recorded, taken before the ended ones are dropped, so a
+// discovered host can be told from one that merely ended here.
+func localRows(all bool) ([]sessionRow, map[string]*interview.Session, error) {
+	list, err := interview.List()
+	if err != nil {
+		return nil, nil, err
+	}
+	known := make(map[string]*interview.Session, len(list))
+	for _, s := range list {
+		known[s.Seed] = s
+	}
+	if !all {
+		list = slices.DeleteFunc(list, func(s *interview.Session) bool { return !s.EndedAt.IsZero() })
+	}
+	rows := make([]sessionRow, 0, len(list))
+	for _, s := range list {
+		state, rank := sessionStatus(s)
+		rows = append(rows, sessionRow{s: s, state: state, rank: rank})
+	}
+	return rows, known, nil
+}
+
 // cmdSessions answers what exists, what it cost, and what the URLs were.
 func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "show" {
@@ -292,24 +315,10 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews sessions: no verb %q\n", pos[0])
 		return usageErr("sessions", stderr)
 	}
-	list, err := interview.List()
+	rows, known, err := localRows(*all)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews sessions: %v\n", err)
 		return 1
-	}
-	// Every seed this machine has ever recorded, kept before the filter below
-	// so a discovered host can be told from one that merely ended here.
-	known := make(map[string]*interview.Session, len(list))
-	for _, s := range list {
-		known[s.Seed] = s
-	}
-	if !*all {
-		list = slices.DeleteFunc(list, func(s *interview.Session) bool { return !s.EndedAt.IsZero() })
-	}
-	rows := make([]sessionRow, 0, len(list))
-	for _, s := range list {
-		state, rank := sessionStatus(s)
-		rows = append(rows, sessionRow{s: s, state: state, rank: rank})
 	}
 	stranded := 0
 	if *remote {

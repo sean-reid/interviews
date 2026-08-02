@@ -165,6 +165,29 @@ func TestUpRendersBuildsAppliesVerifies(t *testing.T) {
 	}
 }
 
+// Containment must not depend on a problem author remembering two labels
+// in a namespace manifest: the provider enforces baseline pod security on
+// the scenario namespace itself, after the manifests create it and before
+// Up returns.
+func TestUpEnforcesPodSecurityOnTheNamespace(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	if err := e.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	label := "kubectl --kubeconfig " + filepath.Join(e.Workdir, "kubeconfig") +
+		" label --overwrite namespace shop" +
+		" pod-security.kubernetes.io/enforce=baseline" +
+		" pod-security.kubernetes.io/enforce-version=latest"
+	at := slices.Index(r.calls, label)
+	if at < 0 {
+		t.Fatalf("no call %q in %v", label, r.calls)
+	}
+	applied := r.callsMatching("apply -R -f")
+	if len(applied) == 0 || slices.Index(r.calls, applied[0]) > at {
+		t.Errorf("labels landed before the namespace could exist: %v", r.calls)
+	}
+}
+
 // A cluster built from whatever kind happens to be installed is a different
 // cluster on a laptop than on a provisioned host, and nothing would say so.
 // The Kubernetes version is part of the problem, so it is pinned rather than

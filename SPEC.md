@@ -151,6 +151,11 @@ app:                          # optional: what a candidate can open in a browser
   path: /
 ```
 
+The platform labels the kind namespace `pod-security.kubernetes.io/enforce:
+baseline` itself when the environment comes up, so containment never depends
+on a manifest remembering it; a namespace manifest may still declare the same
+labels.
+
 Environment files may reference two builtins on top of the declared
 parameters: `{{._dir}}`, the problem directory on disk, for absolute build
 contexts in compose files, and `{{._workdir}}`, the session's state

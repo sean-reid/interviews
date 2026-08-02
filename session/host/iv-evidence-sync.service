@@ -7,4 +7,10 @@ Type=oneshot
 User=interviewer
 WorkingDirectory=/opt/interviews
 EnvironmentFile=/etc/interviews/session.env
+# A runaway sync pass must fail, not OOM the box mid-interview. The pass
+# streams the bundle, so the platform itself stays small; the headroom is
+# for the check scripts and the python aws CLI it runs, which need well
+# under half of this. On failure the timer retries in two minutes and the
+# last good bundle stays in place.
+MemoryMax=512M
 ExecStart=/opt/interviews/interviews session evidence ${IV_PROBLEM} --seed ${IV_SEED} --content /opt/interviews/content --s3 ${IV_EVIDENCE_S3}

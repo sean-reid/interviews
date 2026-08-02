@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
@@ -258,12 +259,26 @@ func TestStartSpawnsSessionProcesses(t *testing.T) {
 	for _, want := range []string{
 		"tmux new-session -d -s " + name,
 		"tmux pipe-pane -o -t " + name + " cat >> " + filepath.Join(wd, RawLogFile),
-		"start asciinema rec --overwrite --command tmux new-session -A -s " + name + " " + filepath.Join(wd, CastFile),
 		"start ttyd -i 127.0.0.1 -p 8001 -W tmux attach -t " + name,
 		"start ttyd -i 127.0.0.1 -p 8002 tmux attach -r -t " + name,
 	} {
 		if len(r.callsMatching(want)) != 1 {
 			t.Errorf("no call %q in %v", want, r.calls)
+		}
+	}
+	rec := r.callsMatching("asciinema rec")
+	if len(rec) != 1 {
+		t.Fatalf("recorder starts = %v", rec)
+	}
+	for _, want := range []string{
+		"start sh -c",
+		"asciinema rec --overwrite --command 'tmux attach -t " + name + "'",
+		"cast='" + filepath.Join(wd, CastFile) + "'",
+		"tmux has-session -t " + name,
+		RecorderLogFile,
+	} {
+		if !strings.Contains(rec[0], want) {
+			t.Errorf("recorder command missing %q:\n%s", want, rec[0])
 		}
 	}
 
@@ -340,14 +355,30 @@ func TestStartAsCandidateUser(t *testing.T) {
 		"sudo -n -u candidate tmux -S " + socket + " new-session -d -s " + name + " -e KUBECONFIG=" + kube,
 		"sudo -n -u candidate tmux -S " + socket + " run-shell chmod 0660 " + socket,
 		"sudo -n -u candidate tmux -S " + socket + " server-access -a -w " + me.Username,
-		"start asciinema rec --overwrite --command tmux -S " + socket +
-			" new-session -A -s " + name + " " + filepath.Join(wd, CastFile),
 		"start ttyd -i 127.0.0.1 -p 8001 -W tmux -S " + socket + " attach -t " + name,
 		"start ttyd -i 127.0.0.1 -p 8002 tmux -S " + socket + " attach -r -t " + name,
 	} {
 		if len(r.callsMatching(want)) != 1 {
 			t.Errorf("no call %q in %v", want, r.calls)
 		}
+	}
+	rec := r.callsMatching("asciinema rec")
+	if len(rec) != 1 {
+		t.Fatalf("recorder starts = %v", rec)
+	}
+	for _, want := range []string{
+		"asciinema rec --overwrite --command 'tmux -S " + socket + " attach -t " + name + "'",
+		"tmux -S " + socket + " has-session -t " + name,
+	} {
+		if !strings.Contains(rec[0], want) {
+			t.Errorf("recorder command missing %q:\n%s", want, rec[0])
+		}
+	}
+	// A restarted recorder attaches or gives up. new-session -A would
+	// recreate a killed server owned by this account, and the candidate's
+	// browser terminal would then be a shell on it.
+	if strings.Contains(rec[0], "new-session") {
+		t.Errorf("the recorder can recreate the tmux server:\n%s", rec[0])
 	}
 
 	// Everything that produces evidence or serves a terminal stays with the
@@ -1218,6 +1249,89 @@ func TestStopReportsAndFailedStartDoesNot(t *testing.T) {
 	}
 	if strings.Contains(out2.String(), "stopped") {
 		t.Errorf("a failed start claims it stopped a session: %q", out2.String())
+	}
+}
+
+// stub writes an executable fake binary into dir.
+func stub(t *testing.T, dir, name, script string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitFor polls until check passes or the deadline does not.
+func waitFor(t *testing.T, what string, check func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !check() {
+		if time.Now().After(deadline) {
+			t.Fatalf("gave up waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// The recorder script is real shell, so its promise is proved under a real
+// sh with stub asciinema and tmux binaries: a recorder that exits with the
+// session still up restarts into a numbered segment and logs the gap, and
+// one that outlives its session says so and stops.
+func TestRecorderScriptRestartsAndLogsAndEnds(t *testing.T) {
+	workdir, bin := t.TempDir(), t.TempDir()
+	alive := filepath.Join(bin, "session-alive")
+	if err := os.WriteFile(alive, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// asciinema exits at once, which is what it does when the candidate
+	// detaches its client; the cast target is its last argument.
+	stub(t, bin, "asciinema", "#!/bin/sh\nfor last; do :; done\necho rec >\"$last\"\n")
+	// tmux answers has-session: the session is up while the marker exists.
+	stub(t, bin, "tmux", "#!/bin/sh\ntest -e "+alive+"\n")
+
+	cmd := exec.Command("sh", "-c", recorderScript(workdir, tmuxCtl{}, "iv-test"))
+	cmd.Env = []string{"PATH=" + bin + ":" + os.Getenv("PATH")}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the restarted segment", func() bool {
+		_, err := os.Stat(filepath.Join(workdir, CastFile+".1"))
+		return err == nil
+	})
+	// The session ends while the supervisor still runs: the tmux server
+	// died without a stop, and the loop must say so and finish rather than
+	// spin against a server that is never coming back.
+	if err := os.Remove(alive); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("supervisor exit = %v, want success once the session is gone", err)
+	}
+
+	for _, name := range []string{CastFile, CastFile + ".1"} {
+		raw, err := os.ReadFile(filepath.Join(workdir, name))
+		if err != nil || string(raw) != "rec\n" {
+			t.Errorf("segment %s = %q, %v", name, raw, err)
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(workdir, RecorderLogFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("recorder.log = %q, want at least a restart and an end", raw)
+	}
+	if !strings.Contains(string(raw), "restarting into "+CastFile+".1") {
+		t.Errorf("no restart recorded: %q", raw)
+	}
+	if !strings.Contains(lines[len(lines)-1], "session is gone") {
+		t.Errorf("the unexplained end of the session is not recorded: %q", lines[len(lines)-1])
+	}
+	for _, line := range lines {
+		ts, _, _ := strings.Cut(line, " ")
+		if _, err := time.Parse(time.RFC3339, ts); err != nil {
+			t.Errorf("log line %q does not begin with a timestamp", line)
+		}
 	}
 }
 

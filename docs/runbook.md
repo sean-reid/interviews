@@ -192,7 +192,12 @@ than continuing if the candidate can reach the content tree.
 
 The `interviewer` account runs the platform, the recorder, and both ttyd
 processes. The recording therefore belongs to an account the candidate
-cannot write to or signal, which is what makes it evidence.
+cannot write to or signal. The tmux server is theirs, though, so they can
+end the client the recorder watches. A recorder that exits while the
+session is still up restarts into a numbered cast segment
+(`session.cast.1`, ...) and the gap is logged with a timestamp in
+`recorder.log`; both ship in the evidence bundle, so ending the recorder
+costs seconds of recording and documents itself.
 
 ## After
 

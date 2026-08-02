@@ -27,15 +27,19 @@ import (
 
 // Files the session stack writes into the workdir.
 const (
-	InfoFile       = "session.json"
-	CastFile       = "session.cast"
-	RawLogFile     = "terminal.raw"
-	TimelineFile   = "timeline.jsonl"
-	EvidenceFile   = "evidence.tar.gz"
-	ScoreErrorFile = "score-error.txt"
-	KubeconfigFile = "candidate.kubeconfig"
-	RBACFile       = "candidate-rbac.yaml"
-	pidsDir        = "pids"
+	InfoFile   = "session.json"
+	CastFile   = "session.cast"
+	RawLogFile = "terminal.raw"
+	// RecorderLogFile records every time the recorder exited and was
+	// restarted while the session was still up. A gap in the recording is
+	// itself evidence, and this is where it is written down.
+	RecorderLogFile = "recorder.log"
+	TimelineFile    = "timeline.jsonl"
+	EvidenceFile    = "evidence.tar.gz"
+	ScoreErrorFile  = "score-error.txt"
+	KubeconfigFile  = "candidate.kubeconfig"
+	RBACFile        = "candidate-rbac.yaml"
+	pidsDir         = "pids"
 )
 
 // Local ttyd ports. On a real host Caddy fronts both with TLS and secret
@@ -160,6 +164,44 @@ func (t tmuxCtl) cmd(args ...string) (string, []string) {
 func (t tmuxCtl) line(args ...string) string {
 	bin, full := t.cmd(args...)
 	return bin + " " + strings.Join(full, " ")
+}
+
+// shQuote wraps s so a POSIX shell reads it as one word.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// recorderScript supervises asciinema for the length of the session. The
+// candidate cannot signal the recorder, but the tmux server lives on their
+// side of the account split, so they can end the client it records through,
+// or the whole server. Ending it cannot be prevented from here, so it is
+// made loud and pointless instead: a recorder that exits while the session
+// is still up restarts into a numbered cast segment, and the gap is logged
+// with a timestamp, so a kill costs seconds of recording and writes its own
+// evidence. Stop kills this supervisor before the tmux session, so a
+// session this loop sees disappear was not ended by the platform; that is
+// logged too, and the loop exits rather than recreate the server, which
+// would come up owned by this account instead of the candidate. Attaching,
+// never new-session -A, is what makes that impossible.
+func recorderScript(workdir string, client tmuxCtl, name string) string {
+	cast := shQuote(filepath.Join(workdir, CastFile))
+	log := shQuote(filepath.Join(workdir, RecorderLogFile))
+	ts := `$(date -u +%Y-%m-%dT%H:%M:%SZ)`
+	return fmt.Sprintf(`cast=%s; n=0
+while :; do
+  asciinema rec --overwrite --command %s "$cast"
+  if ! %s 2>/dev/null; then
+    printf '%%s the tmux session is gone without a stop; the recording ends with it\n' "%s" >> %s
+    exit 0
+  fi
+  [ -s "$cast" ] || exit 1
+  n=$((n+1)); cast=%s.$n
+  printf '%%s the recorder exited with the session still up; restarting into %%s\n' "%s" "${cast##*/}" >> %s
+  sleep 1
+done`,
+		cast, shQuote(client.line("attach", "-t", name)),
+		client.line("has-session", "-t", name), ts, log,
+		cast, ts, log)
 }
 
 // listener is one of the two ttyd endpoints: its pidfile name, the label
@@ -289,12 +331,14 @@ func (m *Manager) Start(ctx context.Context, opts StartOptions) (*Info, error) {
 
 	// The recorder attaches as this process's account and writes into a
 	// workdir the candidate cannot reach, so with a candidate-owned server
-	// it is the one piece of evidence they can neither edit nor signal.
-	// That makes it mandatory there, and evidence rather than the session
-	// itself locally, where a missing asciinema is just a dry run.
-	cast := filepath.Join(m.Engine.Workdir, CastFile)
-	recorder, recErr := m.startProcess(ctx, "asciinema", "asciinema",
-		"rec", "--overwrite", "--command", client.line("new-session", "-A", "-s", name), cast)
+	// they can neither edit the recording nor signal the recorder. That
+	// makes it mandatory there, and evidence rather than the session itself
+	// locally, where a missing asciinema is just a dry run. What a candidate
+	// can end is the recorder's tmux client, or the whole server, both on
+	// their side of the account split; the supervisor loop is what answers
+	// that.
+	recorder, recErr := m.startProcess(ctx, "asciinema", "sh", "-c",
+		recorderScript(m.Engine.Workdir, client, name))
 	if recorder.pid == 0 {
 		if opts.CandidateUser != "" {
 			return fail(fmt.Errorf("recording is the only evidence a candidate account cannot touch: %w", recErr))

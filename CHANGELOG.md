@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.8.0](https://github.com/sean-reid/interviews/compare/v0.7.0...v0.8.0) (2026-08-02)
+
+
+### Features
+
+* **cli:** have doctor look for stray hosts ([#97](https://github.com/sean-reid/interviews/issues/97)) ([490e169](https://github.com/sean-reid/interviews/commit/490e16956dd843fbab4d3e2e819afe4e02f48639))
+* **cli:** start every interview type ([#98](https://github.com/sean-reid/interviews/issues/98)) ([31d2435](https://github.com/sean-reid/interviews/commit/31d243556418fd86d169e53f4a84b6feba2d006c))
+* **debug:** record what an environment was produced on ([#99](https://github.com/sean-reid/interviews/issues/99)) ([f0042de](https://github.com/sean-reid/interviews/commit/f0042de1f0eb8a869a11724f290caa4318bd7dd0))
+* **infra:** give the account module a state bucket of its own ([#100](https://github.com/sean-reid/interviews/issues/100)) ([ecde558](https://github.com/sean-reid/interviews/commit/ecde558d791811d67bf62af5e4072a1b94a5b2b3))
+
+
+### Bug Fixes
+
+* **cli:** let hint work on a session with no workdir ([#73](https://github.com/sean-reid/interviews/issues/73)) ([ae8d086](https://github.com/sean-reid/interviews/commit/ae8d08696c37809b476d440c514b83624e45ce51))
+* **cli:** make purge say what it actually deleted ([#77](https://github.com/sean-reid/interviews/issues/77)) ([a2a42fe](https://github.com/sean-reid/interviews/commit/a2a42fe9230e234473e3c0af7a042f49a29e3b66))
+* **cli:** refuse a problem the session is not for ([#76](https://github.com/sean-reid/interviews/issues/76)) ([6652280](https://github.com/sean-reid/interviews/commit/6652280d1ecce8f8a6f17e13e38e6db6a4e267e0))
+* **cli:** stop exit codes from saying the opposite ([#79](https://github.com/sean-reid/interviews/issues/79)) ([dfba6dd](https://github.com/sean-reid/interviews/commit/dfba6ddf8f777ede6a7c00d5423bee29e8504875))
+* **cli:** stop help advertising flags that do not exist ([#83](https://github.com/sean-reid/interviews/issues/83)) ([04a9034](https://github.com/sean-reid/interviews/commit/04a9034c284487f31dbca0096b107429e88529a7))
+* **cli:** warn about a dirty content root given a relative path ([#78](https://github.com/sean-reid/interviews/issues/78)) ([e21f86a](https://github.com/sean-reid/interviews/commit/e21f86a056785e0504645274f61a6e90de0a7165))
+* **content:** cut the flavors no provider can host ([#80](https://github.com/sean-reid/interviews/issues/80)) ([56391ae](https://github.com/sean-reid/interviews/commit/56391aebff1ec7402f94ac38b4f08906d0f6c9a3))
+* **content:** see a brief's real case when validating ([#82](https://github.com/sean-reid/interviews/issues/82)) ([44cf2e8](https://github.com/sean-reid/interviews/commit/44cf2e8a24b7426dee42b7b777d6c7a9299ba357))
+* **debug:** enforce baseline pod security on the scenario namespace ([#94](https://github.com/sean-reid/interviews/issues/94)) ([faf573e](https://github.com/sean-reid/interviews/commit/faf573ecfc83f6e098e9f69e44dff138297f393e))
+* housekeeping batch from the audit ([#96](https://github.com/sean-reid/interviews/issues/96)) ([5917848](https://github.com/sean-reid/interviews/commit/5917848e6cfe145d65a6cf6bd5461a4a9608b8da))
+* **infra:** grant the reads the provider makes after creating a lambda ([#104](https://github.com/sean-reid/interviews/issues/104)) ([a5f9eef](https://github.com/sean-reid/interviews/commit/a5f9eef8850b7aeed727d66118f7c391a66a1774))
+* **infra:** let terraform read the reaper's log group ([#102](https://github.com/sean-reid/interviews/issues/102)) ([3523059](https://github.com/sean-reid/interviews/commit/35230596619d0a726f43d0a8d9e426dbabb16ed0))
+* **infra:** let the interviewer read the reaper's log ([#105](https://github.com/sean-reid/interviews/issues/105)) ([1cfe4f8](https://github.com/sean-reid/interviews/commit/1cfe4f8509d008570feeaadc0e31301252c170b3))
+* **infra:** let the reaper's role be passed to lambda ([#103](https://github.com/sean-reid/interviews/issues/103)) ([d212e34](https://github.com/sean-reid/interviews/commit/d212e3442a860797ee7f7ffb824f8f2184f773ad))
+* **redteam:** bound the hang, keep the transcript, judge per pack ([#88](https://github.com/sean-reid/interviews/issues/88)) ([101ecec](https://github.com/sean-reid/interviews/commit/101ececc7da353acb45b1b5a93e45a12ce877366))
+* **session:** refuse an impossible proxy port instead of hanging ([#81](https://github.com/sean-reid/interviews/issues/81)) ([0324d2d](https://github.com/sean-reid/interviews/commit/0324d2d4b70e371e4053a8319debd60b9db79652))
+* **session:** stream the recording into evidence and survive its death ([#95](https://github.com/sean-reid/interviews/issues/95)) ([f634fed](https://github.com/sean-reid/interviews/commit/f634fed750cbf6545cbdf09c014d04470d66561e))
+* small correctness pass ([#92](https://github.com/sean-reid/interviews/issues/92)) ([910a3af](https://github.com/sean-reid/interviews/commit/910a3afdf2c0b6bd61bdad870c71c720ec8df466))
+* stop a missing content root and an unreadable one from failing silently ([#74](https://github.com/sean-reid/interviews/issues/74)) ([a5c2c51](https://github.com/sean-reid/interviews/commit/a5c2c5158925a63bb6ac2b5bc7ca16c4ca0cc6b9))
+
+
+### Performance Improvements
+
+* **cli:** prove fault packs concurrently ([#84](https://github.com/sean-reid/interviews/issues/84)) ([265c5a0](https://github.com/sean-reid/interviews/commit/265c5a05fa5ad1dcda9e7e9efbc72f59d6de26e0))
+
 ## [0.7.0](https://github.com/sean-reid/interviews/compare/v0.6.0...v0.7.0) (2026-08-02)
 
 

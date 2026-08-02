@@ -2,9 +2,13 @@ package debug
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/sean-reid/interviews/internal/provenance"
 )
 
 // DefaultNodeImage is the Kubernetes a scenario gets when it does not ask
@@ -58,6 +62,62 @@ func (p *kindProvider) env(env map[string]string) {
 	env["IV_NAMESPACE"] = ns
 	env["IV_CLUSTER"] = p.cluster()
 	env["KUBECONFIG"] = p.kubeconfig()
+}
+
+// provenance records the image this cluster was built from and the versions
+// the two binaries report for themselves. The image is what the provider
+// passed, not the constant behind it, so a scenario that pins its own
+// Kubernetes records the one it got. The two extra calls sit inside a
+// bring-up that is already minutes of cluster build, and neither is allowed
+// to fail it.
+func (p *kindProvider) provenance(ctx context.Context, r *provenance.Record) {
+	r.NodeImage = p.nodeImage()
+	r.Kind = p.version(ctx, r, "kind", kindVersion, "version")
+	r.Kubectl = p.version(ctx, r, "kubectl", kubectlVersion, "version", "--client", "-o", "json")
+}
+
+// version asks one binary what it is and parses the answer. A binary that
+// cannot say leaves the field absent and a line saying why.
+func (p *kindProvider) version(ctx context.Context, r *provenance.Record,
+	name string, parse func(string) (string, error), args ...string) string {
+	out, err := p.e.Runner.Output(ctx, name, args...)
+	if err != nil {
+		r.Missing(name+" version", err)
+		return ""
+	}
+	v, err := parse(out)
+	if err != nil {
+		r.Missing(name+" version", err)
+		return ""
+	}
+	return v
+}
+
+// kindVersion reads "kind v0.29.0 go1.24.2 linux/amd64" down to the version.
+func kindVersion(out string) (string, error) {
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	fields := strings.Fields(line)
+	if len(fields) < 2 || fields[0] != "kind" {
+		return "", fmt.Errorf("kind version said %q", line)
+	}
+	return fields[1], nil
+}
+
+// kubectlVersion reads the client version out of kubectl's own json, which
+// is a stabler contract than the human line above it.
+func kubectlVersion(out string) (string, error) {
+	var v struct {
+		ClientVersion struct {
+			GitVersion string `json:"gitVersion"`
+		} `json:"clientVersion"`
+	}
+	if err := json.Unmarshal([]byte(out), &v); err != nil {
+		return "", err
+	}
+	if v.ClientVersion.GitVersion == "" {
+		return "", errors.New("kubectl reported no client gitVersion")
+	}
+	return v.ClientVersion.GitVersion, nil
 }
 
 func (p *kindProvider) Detect(ctx context.Context) error {

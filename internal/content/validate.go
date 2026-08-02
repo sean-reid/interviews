@@ -11,12 +11,11 @@ import (
 )
 
 var (
-	idRe    = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	paramRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 )
 
 func manifestIssue(format string, args ...any) Issue {
-	return Issue{Path: ManifestName, Msg: fmt.Sprintf(format, args...)}
+	return Issuef(ManifestName, format, args...)
 }
 
 func validateManifest(m *Manifest, wantType taxonomy.Type, dirName string) []Issue {
@@ -28,7 +27,7 @@ func validateManifest(m *Manifest, wantType taxonomy.Type, dirName string) []Iss
 	if m.Schema != SupportedSchema {
 		add("schema: %d is not supported (this binary understands %d)", m.Schema, SupportedSchema)
 	}
-	if !idRe.MatchString(m.ID) {
+	if !taxonomy.ValidID(m.ID) {
 		add("id: %q must be kebab-case", m.ID)
 	} else if m.ID != dirName {
 		add("id: %q must equal the directory name %q", m.ID, dirName)

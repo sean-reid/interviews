@@ -2,8 +2,6 @@ package debug
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -154,15 +152,7 @@ func envName(v *variant.Resolved) string {
 	for _, name := range slices.Sorted(maps.Keys(v.Params)) {
 		parts = append(parts, name, fmt.Sprint(v.Params[name]))
 	}
-	h := sha256.New()
-	for _, s := range parts {
-		// Length-prefix each part so no two part lists share a digest.
-		var n [4]byte
-		binary.BigEndian.PutUint32(n[:], uint32(len(s)))
-		h.Write(n[:])
-		h.Write([]byte(s))
-	}
-	return "iv-" + problem + "-" + hex.EncodeToString(h.Sum(nil)[:4])
+	return "iv-" + problem + "-" + hex.EncodeToString(variant.HashParts(parts...)[:4])
 }
 
 // Pack returns the variant's fault pack.

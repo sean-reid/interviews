@@ -336,3 +336,13 @@ func TestNonASCIIPathsAreARejection(t *testing.T) {
 		t.Errorf("the ordinary candidate file stopped shipping: %v", s.Candidate)
 	}
 }
+
+// Every named spec file stays in the protected list: the constants moved
+// down here precisely so the gate and the file owners cannot drift.
+func TestProtectedFilesCoverEverySpecFile(t *testing.T) {
+	for _, f := range []string{ManifestFile, EnvFile, ReviewFile} {
+		if !slices.Contains(ProtectedFiles, f) {
+			t.Errorf("%s is not in ProtectedFiles", f)
+		}
+	}
+}

@@ -20,11 +20,15 @@ import (
 const SupportedSchema = 1
 
 // ManifestName is the manifest file every problem directory must contain.
-const ManifestName = "problem.yaml"
+const ManifestName = leak.ManifestFile
 
 // BriefPath is the candidate brief every problem must ship: the exact text a
 // candidate is given at the start, whatever the interview type.
 const BriefPath = "candidate/brief.md"
+
+// ProbesPath is the interviewer's question bank for the live review that
+// take-homes and system designs both end in.
+const ProbesPath = "interviewer/probes.md"
 
 // Manifest is the parsed problem.yaml.
 type Manifest struct {
@@ -91,6 +95,14 @@ type Problem struct {
 }
 
 // Issue is one validation finding, tied to a file inside the problem.
+// DecodeStrict decodes YAML rejecting unknown fields, which is the loud
+// failure the package doc promises for a typo in any spec file.
+func DecodeStrict(raw []byte, out any) error {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	return dec.Decode(out)
+}
+
 type Issue struct {
 	Path    string
 	Msg     string
@@ -119,10 +131,8 @@ func Load(fsys fs.FS, wantType taxonomy.Type, dirName string) (*Problem, []Issue
 	if err != nil {
 		return nil, []Issue{{Path: ManifestName, Msg: "missing manifest"}}
 	}
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
 	var m Manifest
-	if err := dec.Decode(&m); err != nil {
+	if err := DecodeStrict(raw, &m); err != nil {
 		return nil, []Issue{{Path: ManifestName, Msg: fmt.Sprintf("cannot decode: %v", err)}}
 	}
 
@@ -143,4 +153,17 @@ func Load(fsys fs.FS, wantType taxonomy.Type, dirName string) (*Problem, []Issue
 	p := &Problem{Manifest: m, FS: fsys, Classifier: classifier, Scan: scan}
 	issues = append(issues, validateFiles(p)...)
 	return p, issues
+}
+
+// Issuef builds one validation issue at path.
+func Issuef(path, format string, args ...any) Issue {
+	return Issue{Path: path, Msg: fmt.Sprintf(format, args...)}
+}
+
+// Adder returns an issue collector pinned to one path: the shape every
+// validator's accumulate-rather-than-fail loop uses.
+func Adder(issues *[]Issue, path string) func(format string, args ...any) {
+	return func(format string, args ...any) {
+		*issues = append(*issues, Issuef(path, format, args...))
+	}
 }

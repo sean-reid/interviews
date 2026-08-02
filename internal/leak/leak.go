@@ -38,7 +38,16 @@ var ProtectedDirs = []string{"interviewer", "faults"}
 // ProtectedFiles name files at the problem root that describe the exercise
 // itself: the fault and environment specs, and the live-review material for a
 // design problem. None of them is answer-free.
-var ProtectedFiles = []string{"env.yaml", "review.yaml", "problem.yaml"}
+const (
+	// The spec files, named here in the lowest package so the leak gate and
+	// the packages that own each file cannot drift: a new spec file that is
+	// not listed in ProtectedFiles is one the gate does not protect.
+	ManifestFile = "problem.yaml"
+	EnvFile      = "env.yaml"
+	ReviewFile   = "review.yaml"
+)
+
+var ProtectedFiles = []string{EnvFile, ReviewFile, ManifestFile}
 
 // isProtectedName reports whether one path segment names something protected.
 // Comparison folds case because the classifier and the filesystem must agree:

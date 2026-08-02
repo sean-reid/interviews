@@ -3,14 +3,12 @@ package debug
 import (
 	"fmt"
 	"io/fs"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/sean-reid/interviews/internal/content"
+	"github.com/sean-reid/interviews/internal/taxonomy"
 )
-
-var faultIDRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // Scenario is a debugging problem's executable half: the environment spec
 // and its faults, loaded and cross-checked against the manifest.
@@ -56,9 +54,7 @@ func (s *Scenario) Fault(id string) (Fault, bool) {
 // when env.yaml itself cannot be read.
 func LoadScenario(p *content.Problem) (*Scenario, []content.Issue) {
 	var issues []content.Issue
-	addIssue := func(path, format string, args ...any) {
-		issues = append(issues, content.Issue{Path: path, Msg: fmt.Sprintf(format, args...)})
-	}
+	addIssue := content.Adder(&issues, EnvManifest)
 
 	var env EnvSpec
 	if err := readYAML(p.FS, EnvManifest, &env); err != nil {
@@ -68,34 +64,34 @@ func LoadScenario(p *content.Problem) (*Scenario, []content.Issue) {
 
 	allowed := providersByFlavor[p.Manifest.Flavor]
 	if !slices.Contains(allowed, env.Provider) {
-		addIssue(EnvManifest, "provider: %q is not valid for flavor %s (want one of %v)",
+		addIssue("provider: %q is not valid for flavor %s (want one of %v)",
 			env.Provider, p.Manifest.Flavor, allowed)
 	}
 	switch env.Provider {
 	case "kind":
 		if env.Compose != nil {
-			addIssue(EnvManifest, "compose: section set but provider is kind")
+			addIssue("compose: section set but provider is kind")
 		}
 		if env.Kind == nil {
-			addIssue(EnvManifest, "kind: section required for the kind provider")
+			addIssue("kind: section required for the kind provider")
 		} else {
 			if env.Kind.Namespace == "" {
-				addIssue(EnvManifest, "kind.namespace: required")
+				addIssue("kind.namespace: required")
 			}
 			issues = append(issues, requireDir(p.FS, env.Kind.Manifests, "kind.manifests")...)
 			for i, b := range env.Kind.Build {
 				if b.Image == "" {
-					addIssue(EnvManifest, "kind.build[%d].image: required", i)
+					addIssue("kind.build[%d].image: required", i)
 				}
 				issues = append(issues, requireDir(p.FS, b.Context, fmt.Sprintf("kind.build[%d].context", i))...)
 			}
 		}
 	case "compose":
 		if env.Kind != nil {
-			addIssue(EnvManifest, "kind: section set but provider is compose")
+			addIssue("kind: section set but provider is compose")
 		}
 		if env.Compose == nil {
-			addIssue(EnvManifest, "compose: section required for the compose provider")
+			addIssue("compose: section required for the compose provider")
 		} else {
 			issues = append(issues, requireFile(p.FS, env.Compose.File, "compose.file")...)
 			if env.Compose.Configs != "" {
@@ -106,16 +102,16 @@ func LoadScenario(p *content.Problem) (*Scenario, []content.Issue) {
 	issues = append(issues, requireExecutable(p.FS, env.Verify, "verify")...)
 	if app := env.App; app != nil {
 		if app.Port == "" {
-			addIssue(EnvManifest, "app.port: required, since it is what the candidate's browser reaches")
+			addIssue("app.port: required, since it is what the candidate's browser reaches")
 		}
 		switch env.Provider {
 		case "kind":
 			if app.Service == "" {
-				addIssue(EnvManifest, "app.service: required on kind, to know what to forward to")
+				addIssue("app.service: required on kind, to know what to forward to")
 			}
 		case "compose":
 			if app.Service != "" {
-				addIssue(EnvManifest, "app.service: kind only; a compose app publishes app.port itself")
+				addIssue("app.service: kind only; a compose app publishes app.port itself")
 			}
 		}
 	}
@@ -160,10 +156,8 @@ func (s *Scenario) loadFaults() []content.Issue {
 func validateFault(fsys fs.FS, f Fault, dirName string) []content.Issue {
 	var issues []content.Issue
 	manifest := f.Dir + "/fault.yaml"
-	add := func(format string, args ...any) {
-		issues = append(issues, content.Issue{Path: manifest, Msg: fmt.Sprintf(format, args...)})
-	}
-	if !faultIDRe.MatchString(f.Spec.ID) {
+	add := content.Adder(&issues, manifest)
+	if !taxonomy.ValidID(f.Spec.ID) {
 		add("id: %q must be kebab-case", f.Spec.ID)
 	} else if f.Spec.ID != dirName {
 		add("id: %q must equal the directory name %q", f.Spec.ID, dirName)

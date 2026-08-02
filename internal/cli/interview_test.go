@@ -586,3 +586,37 @@ func TestSessionsRejectsAnUnknownVerb(t *testing.T) {
 		t.Errorf("exit %d, stderr %q", code, stderr)
 	}
 }
+
+// The follow loop only reads the log when it grows, and a finished provision
+// never writes again, so the finish line has to be seen in the log already
+// printed. Without that, this follow sat out the full boot timeout. The aws
+// CLI is stubbed on PATH; the log it serves is real all the way down.
+func TestSessionsLogFollowExitsOnAFinishedLog(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf 'booting\\nprovisioning finished\\n'\n"
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	record(t, &interview.Session{Seed: "done-host-0801", Problem: "relay",
+		Mode: interview.AWS, Evidence: "s3://bucket/done-host-0801/"})
+
+	type result struct {
+		code   int
+		stdout string
+	}
+	done := make(chan result, 1)
+	go func() {
+		code, stdout, _ := run(t, "sessions", "log", "done-host-0801", "--follow")
+		done <- result{code, stdout}
+	}()
+	select {
+	case got := <-done:
+		if got.code != 0 || !strings.Contains(got.stdout, "provisioning finished") {
+			t.Errorf("exit %d, stdout %q", got.code, got.stdout)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("sessions log --follow did not exit on an already-finished log")
+	}
+}

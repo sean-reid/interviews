@@ -738,6 +738,13 @@ func sessionsLog(args []string, stdout, stderr io.Writer) int {
 	if !*follow {
 		return 0
 	}
+	// The loop below only reads the log when it grows, and a finished
+	// provision never writes again, so the line has to be looked for in
+	// what is already here or a follow of a finished boot polls S3 for
+	// the full timeout.
+	if strings.Contains(body, "provisioning finished") {
+		return 0
+	}
 	seen := len(body)
 	deadline := time.Now().Add(bootTimeout)
 	for time.Now().Before(deadline) {

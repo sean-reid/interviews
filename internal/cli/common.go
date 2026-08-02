@@ -172,13 +172,22 @@ func parsePermuted(fs *flag.FlagSet, args []string) ([]string, error) {
 
 // openRegistry loads the content root from disk. Commands that browse pass
 // strict=false and keep going past content errors; validate reports them.
+// contentHint is what to do about a content root that is not there. The
+// content lives in its own checkout, so a moved or unconfigured one is the
+// ordinary first-run state rather than an exceptional failure.
+const contentHint = "set it with: interviews config set content <path to the problems checkout>/content"
+
 func openRegistry(root string, strict bool, stderr io.Writer) (*registry.Registry, error) {
 	info, err := os.Stat(root)
 	if err != nil {
-		return nil, fmt.Errorf("content root %s: %w", root, err)
+		// Nine commands resolve content, and all of them used to end here on
+		// a bare stat error. doctor, config and setup all know the answer;
+		// start, the one running with a candidate waiting, did not. Saying it
+		// here says it everywhere.
+		return nil, fmt.Errorf("content root %s: %w\n%s", root, err, contentHint)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("content root %s is not a directory", root)
+		return nil, fmt.Errorf("content root %s is not a directory\n%s", root, contentHint)
 	}
 	r, err := registry.Load(os.DirFS(root))
 	if err != nil {

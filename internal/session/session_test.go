@@ -733,6 +733,30 @@ func TestStopKillsProcessesAndBundles(t *testing.T) {
 	}
 }
 
+// A reboot recycles pids, so a recorded pid whose process is gone belongs
+// to somebody else now and Stop must not signal it.
+func TestStopSkipsDeadPids(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	if _, err := m.Start(context.Background(), StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for pid := 40001; pid <= 40000+r.starts; pid++ {
+		r.dead[pid] = true
+	}
+
+	if err := m.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls := r.callsMatching("kill 4000"); len(calls) != 0 {
+		t.Errorf("signalled dead pids: %v", calls)
+	}
+	if _, err := os.Stat(filepath.Join(wd, pidsDir)); !os.IsNotExist(err) {
+		t.Errorf("pid directory left behind: %v", err)
+	}
+}
+
 // Stop is its own process invocation, so it recovers the shared socket from
 // session.json rather than needing the flags start was given.
 func TestStopFindsTheSharedSocket(t *testing.T) {

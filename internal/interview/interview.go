@@ -65,6 +65,12 @@ type Session struct {
 	EndedAt time.Time `json:"ended_at,omitzero"`
 	// TTLMinutes is the host's self-destruct clock, 0 when there is none.
 	TTLMinutes int `json:"ttl_minutes,omitempty"`
+	// ProvisionedAt is when the apply finished, which is as close as the
+	// record gets to when the host started its self-destruct clock.
+	// CreatedAt is set before terraform runs, so counting the ttl from it
+	// calls a host stranded minutes before its own timer fires. Zero on
+	// records from before the field existed, which fall back to CreatedAt.
+	ProvisionedAt time.Time `json:"provisioned_at,omitzero"`
 
 	Workdir      string `json:"workdir"`
 	ContentRoot  string `json:"content_root,omitempty"`
@@ -397,5 +403,5 @@ func NewSeed(now time.Time) (string, error) {
 			return seed, nil
 		}
 	}
-	return "", errors.New("could not find an unused seed; interviews sessions clean removes old ones")
+	return "", errors.New("could not find an unused seed today; pass your own with --seed")
 }

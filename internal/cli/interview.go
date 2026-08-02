@@ -228,6 +228,13 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 	if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
 		return usageErr("hint", stderr)
 	}
+	// The default is the sentinel for "measure it"; an explicit negative is
+	// the same input grade hint rejects, and falling back silently logged
+	// the hint at a minute the interviewer never said.
+	if passed(fs, "minute") && *minuteFlag < 0 {
+		fmt.Fprintf(stderr, "interviews hint: --minute %d is not a non-negative integer\n", *minuteFlag)
+		return 2
+	}
 	rec, err := currentOr(*seedFlag, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews hint: %v\n", err)
@@ -513,7 +520,13 @@ func sessionStatus(s *interview.Session) (string, int) {
 			return "provisioning", rankLive
 		}
 		if s.TTLMinutes > 0 {
-			left := time.Until(s.CreatedAt.Add(time.Duration(s.TTLMinutes) * time.Minute))
+			// The host's own timer starts at boot, not when the record was
+			// created before terraform ran.
+			from := s.CreatedAt
+			if !s.ProvisionedAt.IsZero() {
+				from = s.ProvisionedAt
+			}
+			left := time.Until(from.Add(time.Duration(s.TTLMinutes) * time.Minute))
 			if left <= 0 {
 				// Sorted first because it is the only state that bills by the
 				// hour until someone runs end.
@@ -736,6 +749,13 @@ func sessionsLog(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, body)
 	if !*follow {
+		return 0
+	}
+	// The loop below only reads the log when it grows, and a finished
+	// provision never writes again, so the line has to be looked for in
+	// what is already here or a follow of a finished boot polls S3 for
+	// the full timeout.
+	if strings.Contains(body, "provisioning finished") {
 		return 0
 	}
 	seen := len(body)

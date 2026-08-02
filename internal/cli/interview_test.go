@@ -88,6 +88,35 @@ func TestHintMinuteOverrideAndSeed(t *testing.T) {
 	}
 }
 
+// The record is created before terraform apply, so counting the ttl from
+// CreatedAt called a host stranded minutes before its own self-destruct.
+func TestTTLCountsFromProvisionedAt(t *testing.T) {
+	now := time.Now()
+	s := &interview.Session{Mode: interview.AWS, Host: "203.0.113.9", TTLMinutes: 60,
+		CreatedAt: now.Add(-70 * time.Minute), ProvisionedAt: now.Add(-30 * time.Minute)}
+	if state, rank := sessionStatus(s); rank != rankLive || !strings.HasPrefix(state, "up, ") {
+		t.Errorf("state %q rank %d, want a live host with ttl left", state, rank)
+	}
+	// A record from before the field existed still counts from creation.
+	s.ProvisionedAt = time.Time{}
+	if state, rank := sessionStatus(s); state != "past its ttl" || rank != rankStranded {
+		t.Errorf("state %q rank %d, want past its ttl measured from CreatedAt", state, rank)
+	}
+}
+
+// grade hint rejects a negative minute with exit 2; hint used to fall back
+// silently to the measured minute for the same input.
+func TestHintRejectsANegativeMinute(t *testing.T) {
+	rec := record(t, &interview.Session{Seed: "calm-bison-0731", Problem: "pipeline-meltdown"})
+	code, _, stderr := run(t, "hint", "too early", "--minute", "-5")
+	if code != 2 || !strings.Contains(stderr, "--minute") {
+		t.Errorf("exit %d, stderr %q, want a usage error naming the flag", code, stderr)
+	}
+	if hints := hintsIn(t, rec.Workdir); len(hints) != 0 {
+		t.Errorf("hints = %v, want none logged", hints)
+	}
+}
+
 func TestHintRefusesAnUnknownSession(t *testing.T) {
 	record(t, &interview.Session{Seed: "calm-bison-0731", Problem: "pipeline-meltdown"})
 	code, _, stderr := run(t, "hint", "text", "--seed", "no-such-session")
@@ -584,5 +613,39 @@ func TestSessionsRejectsAnUnknownVerb(t *testing.T) {
 	if code, _, stderr := run(t, "sessions", "--all", "show"); code != 2 ||
 		!strings.Contains(stderr, `no verb "show"`) {
 		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+}
+
+// The follow loop only reads the log when it grows, and a finished provision
+// never writes again, so the finish line has to be seen in the log already
+// printed. Without that, this follow sat out the full boot timeout. The aws
+// CLI is stubbed on PATH; the log it serves is real all the way down.
+func TestSessionsLogFollowExitsOnAFinishedLog(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf 'booting\\nprovisioning finished\\n'\n"
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	record(t, &interview.Session{Seed: "done-host-0801", Problem: "relay",
+		Mode: interview.AWS, Evidence: "s3://bucket/done-host-0801/"})
+
+	type result struct {
+		code   int
+		stdout string
+	}
+	done := make(chan result, 1)
+	go func() {
+		code, stdout, _ := run(t, "sessions", "log", "done-host-0801", "--follow")
+		done <- result{code, stdout}
+	}()
+	select {
+	case got := <-done:
+		if got.code != 0 || !strings.Contains(got.stdout, "provisioning finished") {
+			t.Errorf("exit %d, stdout %q", got.code, got.stdout)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("sessions log --follow did not exit on an already-finished log")
 	}
 }

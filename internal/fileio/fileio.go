@@ -1,6 +1,8 @@
 // Package fileio writes the small files a session workdir accumulates.
 // Session timers read those files on their own schedule while commands
-// write them, so every write lands whole or not at all.
+// write them, so a reader never sees a half-written file. That is atomicity
+// against concurrent readers, not crash durability: nothing here fsyncs, so
+// a write can be lost whole if the machine dies.
 package fileio
 
 import (

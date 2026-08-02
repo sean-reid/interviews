@@ -170,14 +170,23 @@ func parseExit(err error) int {
 
 // parsePermuted parses flags that appear before, between, or after the
 // positional arguments. The flag package stops at the first non-flag, but
-// "describe <id> --json" is the natural way to type it.
+// "describe <id> --json" is the natural way to type it. A bare "--" ends
+// flag parsing for good: everything after it is positional, dashes and all,
+// which is how a hint that starts with a dash gets logged.
 func parsePermuted(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
 			return nil, err
 		}
-		args = fs.Args()
+		rest := fs.Args()
+		// fs.Parse swallows the terminator, so look for it at the boundary
+		// where parsing stopped: re-parsing the remainder would escape only
+		// the first word after "--".
+		if n := len(args) - len(rest); n > 0 && args[n-1] == "--" {
+			return append(positional, rest...), nil
+		}
+		args = rest
 		if len(args) == 0 {
 			break
 		}

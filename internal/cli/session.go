@@ -144,6 +144,12 @@ func sessionTimeline(args []string, stdout, stderr io.Writer) int {
 	if len(pos) != 1 || *once == (*forDur > 0) {
 		return usageErr("session timeline", stderr)
 	}
+	// A non-positive interval would fire continuously, running every check
+	// script plus verify in a tight loop against the live cluster.
+	if !*once && *interval <= 0 {
+		fmt.Fprintf(stderr, "interviews session timeline: --interval %s is not a positive duration\n", *interval)
+		return 2
+	}
 	m, err := managerFor(*contentRoot, pos[0], *seed, *workdir, sets, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews session timeline: %v\n", err)

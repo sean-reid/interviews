@@ -125,6 +125,8 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		return 1
 	}
 
+	rec.ProvisionedAt = time.Now()
+
 	out, err := outputs(env, dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews start: reading terraform outputs: %v\n", err)
@@ -202,8 +204,10 @@ func endRemote(rec *interview.Session, purge bool, stdout, stderr io.Writer) int
 			// bucket keeps whatever synced, so teardown carries on.
 			fmt.Fprintf(stderr, "interviews end: could not pull the evidence: %v\n", err)
 		} else {
-			fmt.Fprintf(stdout, "evidence: %s\n", local)
-			rec.Evidence = local
+			// The record keeps pointing at the bucket: the local copy is a
+			// convenience in a temp directory the OS reaps, and sessions log
+			// still needs the URI.
+			fmt.Fprintf(stdout, "local copy: %s\n", local)
 		}
 	}
 

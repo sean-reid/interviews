@@ -530,3 +530,44 @@ func TestStageVerbsRefuseADebuggingSession(t *testing.T) {
 		t.Errorf("stderr does not point at the right command: %q", stderr)
 	}
 }
+
+// A provisioned host keeps its workdir on the host, so hint had nothing to
+// write to and dead-ended, on the command start --remote tells you to run
+// and the one most typed with a candidate waiting. The advice it gave named
+// a flag with no value the interviewer could know.
+func TestHintWorksOnASessionWithNoWorkdir(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	rec := record(t, &interview.Session{
+		Seed: "quiet-badger-0801", Problem: "relay", Mode: interview.AWS,
+		Host: "203.0.113.7", CreatedAt: time.Now().Add(-12 * time.Minute),
+	})
+	rec.Workdir = ""
+	if err := interview.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+	if err := interview.SetCurrent(rec.Seed); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr := run(t, "hint", "nudged them toward the events")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "minute 12") {
+		t.Errorf("stdout = %q, want the measured minute", stdout)
+	}
+
+	// And grading has to find it without being told where it went, or the
+	// hint is logged and never read, which is the same as not logging it.
+	dir, err := interview.HintsDir(rec.Seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hints, err := grading.LoadHintsFrom(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hints) != 1 || hints[0].Text != "nudged them toward the events" {
+		t.Errorf("ledger = %v, want the one hint", hints)
+	}
+}

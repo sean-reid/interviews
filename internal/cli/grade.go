@@ -81,6 +81,17 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews grade sheet: %v\n", err)
 		return 1
 	}
+	// Hints for a session with no local workdir went to the per-seed ledger,
+	// and grading has to find them without being told: a hint nobody reads is
+	// the same as one never logged.
+	if local, lerr := interview.HintsDir(resolvedSeed); lerr == nil {
+		logged, lerr := grading.LoadHintsFrom(local)
+		if lerr != nil {
+			fmt.Fprintf(stderr, "interviews grade sheet: %v\n", lerr)
+			return 1
+		}
+		hints = grading.MergeHints(hints, logged)
+	}
 	if *hintsPath != "" {
 		// Hints are logged wherever the interviewer is sitting, which for a
 		// remote session is not where the evidence comes from.

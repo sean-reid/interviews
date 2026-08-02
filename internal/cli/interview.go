@@ -239,15 +239,22 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 			minute = 0
 		}
 	}
-	if rec.Workdir == "" {
-		fmt.Fprintf(stderr, "interviews hint: session %s has no workdir recorded; use interviews grade hint --workdir\n", rec.Seed)
-		return 1
+	// A provisioned host keeps its workdir on the host and a take-home has
+	// none, so for those the ledger lives here, keyed by seed. start --remote
+	// prints "log hints with: interviews hint", and this is what makes that
+	// true: it used to name a flag with no value the interviewer could know.
+	dir := rec.Workdir
+	if dir == "" {
+		if dir, err = interview.HintsDir(rec.Seed); err != nil {
+			fmt.Fprintf(stderr, "interviews hint: %v\n", err)
+			return 1
+		}
 	}
-	if err := os.MkdirAll(rec.Workdir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintf(stderr, "interviews hint: %v\n", err)
 		return 1
 	}
-	if err := grading.AppendHint(rec.Workdir, grading.Hint{Minute: minute, Text: pos[0], At: time.Now()}); err != nil {
+	if err := grading.AppendHint(dir, grading.Hint{Minute: minute, Text: pos[0], At: time.Now()}); err != nil {
 		fmt.Fprintf(stderr, "interviews hint: %v\n", err)
 		return 1
 	}

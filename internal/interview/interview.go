@@ -106,6 +106,22 @@ func Home() (string, error) {
 	return filepath.Join(cfg, "interviews"), nil
 }
 
+// HintsDir is where hints go for a session with no workdir on this machine.
+// A provisioned host keeps its workdir on the host and an offline take-home
+// has none at all, and in both cases the interviewer is still sitting here
+// typing hints during the interview. Keyed by seed so grading can find them
+// again without being told where they went.
+func HintsDir(seed string) (string, error) {
+	home, err := Home()
+	if err != nil {
+		return "", err
+	}
+	if err := ValidSeed(seed); err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "hints", seed), nil
+}
+
 func sessionsDir() (string, error) {
 	home, err := Home()
 	if err != nil {

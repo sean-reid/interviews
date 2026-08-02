@@ -617,7 +617,11 @@ func TestDownKeepsTheSessionEvidence(t *testing.T) {
 
 // Without evidence there is nothing to protect, and CI proves a pack per
 // run: leaving a workdir per pack behind is a leak.
-func TestDownRemovesAWorkdirHoldingOnlyEnvironmentFiles(t *testing.T) {
+// Teardown clears out what the engine owns and keeps nothing else, but the
+// state file is not the engine's to throw away: grading re-resolves the
+// variant from the parameters it records. This used to assert the whole
+// workdir went, which is what deleted those parameters.
+func TestDownLeavesOnlyTheStateFile(t *testing.T) {
 	e, _ := testEngine(t, composeProblem, map[string]string{"fault_pack": "pack-a"})
 	ctx := context.Background()
 	if err := e.Up(ctx); err != nil {
@@ -628,10 +632,18 @@ func TestDownRemovesAWorkdirHoldingOnlyEnvironmentFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(kept) != 0 {
-		t.Errorf("kept = %v, want nothing", kept)
+		t.Errorf("kept = %v, want nothing reported as evidence", kept)
 	}
-	if _, err := os.Stat(e.Workdir); !os.IsNotExist(err) {
-		t.Errorf("workdir survived with nothing in it: %v", err)
+	entries, err := os.ReadDir(e.Workdir)
+	if err != nil {
+		t.Fatalf("workdir gone, so grading has no recorded parameters: %v", err)
+	}
+	var names []string
+	for _, ent := range entries {
+		names = append(names, ent.Name())
+	}
+	if !slices.Equal(names, []string{StateFile}) {
+		t.Errorf("workdir holds %v, want only %s", names, StateFile)
 	}
 }
 
@@ -751,5 +763,41 @@ func TestReBreakThatFailsKeepsTheFaultsItAlreadyRecorded(t *testing.T) {
 	if !slices.Equal(after.Injected, first) {
 		t.Errorf("injected = %v after a failed re-break, want the %v still in the cluster",
 			after.Injected, first)
+	}
+}
+
+// Teardown stamps the state file precisely so grading can still re-resolve
+// the variant from the parameters it recorded, and then deleted it: the file
+// is excluded from the kept list, so a workdir holding nothing else looked
+// empty. What went with it were the --set overrides, which is the exact
+// failure the grading path has a comment warning about.
+func TestTeardownKeepsTheStateGradingReads(t *testing.T) {
+	e, _ := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	ctx := context.Background()
+	if err := e.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing but the state file, which is the case that used to delete it.
+	for _, name := range engineOwned {
+		if err := os.RemoveAll(filepath.Join(e.Workdir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.Down(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	st, err := e.loadState()
+	if err != nil {
+		t.Fatalf("state gone after teardown, so grading has no variant to re-resolve: %v", err)
+	}
+	if st.Live() {
+		t.Error("state survived but was not stamped as torn down")
+	}
+	// And --purge still means gone.
+	if _, err := e.Down(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(e.Workdir); !os.IsNotExist(err) {
+		t.Errorf("purge left the workdir behind: %v", err)
 	}
 }

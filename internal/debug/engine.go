@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -367,7 +368,13 @@ func (e *Engine) Down(ctx context.Context, purge bool) (kept []string, err error
 		kept = append(kept, filepath.Join(e.Workdir, ent.Name()))
 	}
 	if len(kept) == 0 {
-		return nil, os.RemoveAll(e.Workdir)
+		// Only when the state file is gone too. It is excluded from kept
+		// above, so a workdir holding nothing else looked empty and was
+		// removed, taking with it the recorded parameters the comment above
+		// says grading re-resolves the variant from.
+		if _, serr := os.Stat(filepath.Join(e.Workdir, StateFile)); errors.Is(serr, os.ErrNotExist) {
+			return nil, os.RemoveAll(e.Workdir)
+		}
 	}
 	return kept, nil
 }

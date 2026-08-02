@@ -105,6 +105,11 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
 	}
+	// This is now the session every unqualified command means.
+	if err := interview.SetCurrent(seed); err != nil {
+		fmt.Fprintf(stderr, "interviews start: %v\n", err)
+		return 1
+	}
 	fmt.Fprintf(stdout, "session %s: %s\n", seed, problemID)
 
 	ctx := context.Background()
@@ -197,6 +202,11 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 		rec.Evidence = ""
 	}
 	if err := interview.Save(rec); err != nil {
+		fmt.Fprintf(stderr, "interviews end: %v\n", err)
+		return 1
+	}
+	// An ended session is not the one you are working in.
+	if err := interview.ClearCurrent(rec.Seed); err != nil {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
 		return 1
 	}

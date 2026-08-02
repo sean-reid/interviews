@@ -101,6 +101,12 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
 		return 1
 	}
+	// Only if nothing is live. Preparing the next candidate's drop beside a
+	// running interview must not repoint that interview's hints.
+	if err := interview.SetCurrentIfIdle(seed); err != nil {
+		fmt.Fprintf(stderr, "interviews bundle: %v\n", err)
+		return 1
+	}
 	fmt.Fprintf(stdout, "session %s: %s\nbundle:  %s\n", seed, pos[0], abs)
 	if !rec.DueAt.IsZero() {
 		fmt.Fprintf(stdout, "due:     %s\n", rec.DueAt.Format("Mon 2 Jan 15:04"))

@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
+	"slices"
 	"text/tabwriter"
 
 	"github.com/sean-reid/interviews/internal/interview"
@@ -117,10 +119,84 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	if broken {
 		fmt.Fprintln(stdout, "\nan interview on this machine needs the groups above that are not optional")
 	}
+	strayReport(stdout)
 	if broken || !contentOK {
 		return 1
 	}
 	return 0
+}
+
+// strayReport asks the account what is running and says what nothing local
+// accounts for: hosts no record here knows about, hosts still up after end
+// reported them destroyed, and elastic ips attached to nothing. sessions
+// --remote finds the same things, but only when someone remembers to ask,
+// and a forgotten host is exactly the one nobody asks about. Findings never
+// fail doctor: a stray host bills the account, it does not stop this
+// machine running an interview.
+func strayReport(stdout io.Writer) {
+	cfg := interview.LoadConfig().AWS
+	if cfg == nil {
+		// No cloud setup, so there is no account to check.
+		return
+	}
+	ctx := context.Background()
+	strays, herr := strayHosts(ctx, cfg)
+	stranded, aerr := strandedAddresses(ctx, cfg)
+	fmt.Fprintln(stdout)
+	if herr == nil && aerr == nil && len(strays) == 0 && stranded == 0 {
+		fmt.Fprintln(stdout, "aws  nothing stray in the account: no unaccounted hosts, no idle elastic ips")
+		return
+	}
+	// A check that could not run is reported as exactly that: silence here
+	// would read as a clean account.
+	if herr != nil {
+		fmt.Fprintf(stdout, "aws  could not check the account for stray hosts: %v\n", herr)
+	}
+	if aerr != nil {
+		fmt.Fprintf(stdout, "aws  could not check the account for stranded elastic ips: %v\n", aerr)
+	}
+	if len(strays) > 0 {
+		fmt.Fprintln(stdout, "aws  the account disagrees with the records on this machine:")
+		w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
+		for _, r := range strays {
+			state := r.state
+			if r.elsewhere {
+				state += ", no record on this machine"
+			}
+			fmt.Fprintf(w, "  %s\t%s\t%s\n", r.s.Seed, r.s.Problem, state)
+		}
+		if err := w.Flush(); err != nil {
+			return
+		}
+	}
+	switch {
+	case aerr != nil:
+	case stranded == 1:
+		fmt.Fprintln(stdout, "aws  1 elastic ip attached to nothing and billing")
+	case stranded > 1:
+		fmt.Fprintf(stdout, "aws  %d elastic ips attached to nothing and billing\n", stranded)
+	}
+	if len(strays) > 0 || stranded > 0 {
+		fmt.Fprintln(stdout, "  these cost money: interviews sessions --remote has the detail, interviews end <seed> tears one down")
+	}
+}
+
+// strayHosts is the reconciliation sessions --remote does, reduced to the
+// rows that demand action: every disagreement between the account and the
+// registry, plus hosts no record here claims.
+func strayHosts(ctx context.Context, cfg *interview.AWSSetup) ([]sessionRow, error) {
+	hosts, err := describeHosts(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	rows, known, err := localRows(false)
+	if err != nil {
+		return nil, err
+	}
+	rows = reconcile(rows, known, hosts)
+	return slices.DeleteFunc(rows, func(r sessionRow) bool {
+		return r.rank != rankStranded && !r.elsewhere
+	}), nil
 }
 
 // contentReport says where the problems are and whether the checkout is

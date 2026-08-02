@@ -406,7 +406,7 @@ func (m *Manager) appPlan() (*appRoute, error) {
 		if err != nil {
 			return nil, err
 		}
-		route.command = fmt.Sprintf("exec %q session proxy --from %d --to %d", self, AppPort, target)
+		route.command = fmt.Sprintf("exec %q %s", self, strings.Join(ProxyArgs(target), " "))
 		return route, nil
 	}
 	ns, err := m.Engine.KindNamespace()
@@ -696,4 +696,12 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.killSession(ctx, socket)
 	fmt.Fprintf(m.Out, "session %s stopped; taking the final evidence pass\n", m.Engine.EnvName())
 	return m.Evidence(ctx, EvidenceOptions{Final: true})
+}
+
+// ProxyArgs is the argv session start hands back to this binary to forward
+// a compose app onto the fixed port. It exists so a test can parse the argv
+// through the real flag set: the command used to be asserted as a substring
+// of the string built here, which a renamed flag passes.
+func ProxyArgs(target int) []string {
+	return []string{"session", "proxy", "--from", strconv.Itoa(AppPort), "--to", strconv.Itoa(target)}
 }

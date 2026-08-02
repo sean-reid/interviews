@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -148,6 +149,39 @@ func TestHelpFlagExitsZero(t *testing.T) {
 		args := append(append([]string{}, cmd...), "--help")
 		if code, _, stderr := run(t, args...); code != 0 {
 			t.Errorf("%s --help: exit %d, want 0\n%s", strings.Join(cmd, " "), code, stderr)
+		}
+	}
+}
+
+// The synopsis line and the flag set say the same thing twice, and the
+// synopsis is the copy that drifts: a flag it advertises that does not parse
+// dies with "flag provided but not defined" printed above a usage line still
+// advertising it. Hold every synopsis to the flags its command defines.
+func TestSynopsesAdvertiseOnlyRealFlags(t *testing.T) {
+	// A verb parent answers --help with its verbs, not a flag list, so its
+	// synopsis speaks for its leaves and is checked against their union.
+	leaves := map[string][]string{
+		"setup":    {"setup aws"},
+		"grade":    {"grade sheet", "grade score", "grade hint"},
+		"session":  {"session start", "session stop", "session evidence", "session timeline", "session kubeconfig", "session proxy"},
+		"sessions": {"sessions", "sessions show", "sessions log"},
+	}
+	flagRe := regexp.MustCompile(`--([a-z][a-z0-9-]*)`)
+	for name, line := range synopses {
+		targets := []string{name}
+		if subs, ok := leaves[name]; ok {
+			targets = subs
+		}
+		var out strings.Builder
+		for _, target := range targets {
+			_, stdout, stderr := run(t, append(strings.Fields(target), "--help")...)
+			out.WriteString(stdout)
+			out.WriteString(stderr)
+		}
+		for _, m := range flagRe.FindAllStringSubmatch(line, -1) {
+			if !regexp.MustCompile(`(?m)^\s+-` + m[1] + `\b`).MatchString(out.String()) {
+				t.Errorf("%s synopsis advertises --%s, which its --help does not define:\n%s", name, m[1], out.String())
+			}
 		}
 	}
 }

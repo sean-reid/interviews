@@ -14,7 +14,6 @@ import (
 )
 
 func cmdRedteam(args []string, stdout, stderr io.Writer) int {
-	usage := "usage: interviews redteam <problem-id> [--driver claude|api] [--budget 30m] | interviews redteam ledger"
 	if len(args) > 0 && args[0] == "ledger" {
 		return redteamLedger(args[1:], stdout, stderr)
 	}
@@ -30,8 +29,7 @@ func cmdRedteam(args []string, stdout, stderr io.Writer) int {
 		return parseExit(err)
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, usage)
-		return 2
+		return usageErr("redteam", stderr)
 	}
 	problemID := pos[0]
 

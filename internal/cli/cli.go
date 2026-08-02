@@ -49,8 +49,8 @@ Everywhere:
 A live interview is start, hint, end. The commands under authoring are the
 pieces those are built from, for writing content and for CI.
 
-Every command takes --content <dir>. Without it, the root comes from
-interviews config, then $INTERVIEWS_CONTENT, then ./content. --seed
+Commands that read problems take --content <dir>. Without it, the root comes
+from interviews config, then $INTERVIEWS_CONTENT, then ./content. --seed
 <interview-id> selects one session; without it, commands use the current one.
 `
 

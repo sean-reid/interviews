@@ -20,7 +20,11 @@ type Task struct {
 	Problem string
 	Prompt  string
 	Dir     string
-	Budget  time.Duration
+	// Transcript is where the driver records what the agent did. It lives
+	// outside Dir, which is deleted when the run ends: the transcript is
+	// the evidence a verdict is judged on, so it has to outlive the run.
+	Transcript string
+	Budget     time.Duration
 	// Env is merged over this process's environment for the agent and its
 	// tools only. Calibration must not mutate the environment it runs in:
 	// the same process goes on to check and fix with its own credentials.

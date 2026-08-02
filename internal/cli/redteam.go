@@ -71,7 +71,8 @@ func cmdRedteam(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "interviews redteam: %v\n", err)
 			return 1
 		}
-		result, runErr := redteam.DebugRun(ctx, e, driver, stdout, runBudget)
+		result, runErr := redteam.DebugRun(ctx, e, driver, stdout, runBudget,
+			filepath.Join(ledgerDir(*contentRoot, *ledgerRoot), "transcripts"))
 		if _, err := e.Down(ctx, true); err != nil {
 			fmt.Fprintf(stderr, "interviews redteam: teardown: %v\n", err)
 		}
@@ -121,9 +122,9 @@ func redteamLedger(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "PROBLEM\tWHEN\tDRIVER\tFIXED\tVERIFIED\tVERDICT")
+	fmt.Fprintln(w, "PROBLEM\tPACK\tWHEN\tDRIVER\tFIXED\tVERIFIED\tVERDICT")
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d/%d\t%v\t%s\n", e.Problem,
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d/%d\t%v\t%s\n", e.Problem, e.Pack,
 			e.At.Format("2006-01-02"), e.Driver, e.Fixed, e.Total, e.Verified, e.Verdict)
 	}
 	if err := w.Flush(); err != nil {

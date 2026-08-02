@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -37,7 +36,7 @@ func (d *claudeDriver) Run(ctx context.Context, t Task) (*Attempt, error) {
 	ctx, cancel := context.WithTimeout(ctx, t.Budget)
 	defer cancel()
 
-	transcript := filepath.Join(t.Dir, "transcript.jsonl")
+	transcript := t.Transcript
 	f, err := os.Create(transcript)
 	if err != nil {
 		return nil, err

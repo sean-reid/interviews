@@ -4,6 +4,7 @@
 package registry
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -78,9 +79,15 @@ func Load(fsys fs.FS) (*Registry, error) {
 
 func (r *Registry) loadType(fsys fs.FS, t taxonomy.Type) error {
 	dirs, err := fs.ReadDir(fsys, string(t))
-	if err != nil {
-		// A content root need not have every type yet.
+	if errors.Is(err, fs.ErrNotExist) {
+		// A content root need not have every type yet. Only absence means
+		// that: swallowing the rest made an unreadable directory, a bad
+		// mount, or an I/O error read as an empty library, and validate then
+		// exited 0 with nothing to report.
 		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", t, err)
 	}
 	for _, d := range dirs {
 		dir := path.Join(string(t), d.Name())

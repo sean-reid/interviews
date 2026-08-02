@@ -2,6 +2,8 @@ package registry
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -333,5 +335,39 @@ func TestBrokenProblemFindingsCarryDir(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("broken problem findings missing dir context: %v", r.Findings())
+	}
+}
+
+// A type directory that cannot be read is not a type directory that is not
+// there. Swallowing every error made an unreadable one, a bad mount, or an
+// I/O error read as an empty library, and validate then exited 0 with
+// nothing to report while every take-home had vanished.
+func TestAnUnreadableTypeDirectoryIsAnError(t *testing.T) {
+	root := t.TempDir()
+	takehome := filepath.Join(root, "takehome")
+	if err := os.MkdirAll(takehome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Positive control: readable, and the load succeeds.
+	if _, err := Load(os.DirFS(root)); err != nil {
+		t.Fatalf("a readable tree failed to load (%v); this test proves nothing", err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads an unreadable directory anyway")
+	}
+	if err := os.Chmod(takehome, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(takehome, 0o755) })
+
+	if _, err := Load(os.DirFS(root)); err == nil {
+		t.Error("an unreadable type directory loaded as an empty library")
+	}
+}
+
+// And a type nobody has authored yet is still fine.
+func TestAMissingTypeDirectoryIsNotAnError(t *testing.T) {
+	if _, err := Load(os.DirFS(t.TempDir())); err != nil {
+		t.Errorf("an empty content root should load: %v", err)
 	}
 }

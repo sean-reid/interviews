@@ -32,8 +32,7 @@ func cmdDescribe(args []string, stdout, stderr io.Writer) int {
 		return parseExit(err)
 	}
 	if len(positional) != 1 {
-		fmt.Fprintln(stderr, "usage: interviews describe <problem-id> [--seed id] [--set k=v] [--json]")
-		return 2
+		return usageErr("describe", stderr)
 	}
 	problemID := positional[0]
 	if len(sets) > 0 && *seed == "" {

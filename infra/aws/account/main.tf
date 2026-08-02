@@ -22,6 +22,12 @@ variable "bucket" {
   description = "Name for the evidence bucket"
 }
 
+variable "noncurrent_version_days" {
+  type        = number
+  default     = 30
+  description = "How long a superseded object version is kept before expiry"
+}
+
 resource "aws_s3_bucket" "evidence" {
   bucket = var.bucket
 }
@@ -31,6 +37,34 @@ resource "aws_s3_bucket_versioning" "evidence" {
   versioning_configuration {
     status = "Enabled"
   }
+}
+
+# Versioning with no expiry only grows. The provisioning log re-uploads every
+# 30 seconds during boot and the evidence bundle every 2 minutes for the whole
+# interview, so a session leaves dozens of superseded versions, and terraform
+# state in this bucket holds the session tokens in plaintext. Keeping them
+# forever is a decision about credentials as much as about bytes.
+resource "aws_s3_bucket_lifecycle_configuration" "evidence" {
+  bucket = aws_s3_bucket.evidence.id
+
+  rule {
+    id     = "expire-superseded-versions"
+    status = "Enabled"
+
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.noncurrent_version_days
+    }
+
+    # A failed evidence sync leaves parts that bill and that no listing shows.
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  # Versioning has to exist before a rule can talk about noncurrent versions.
+  depends_on = [aws_s3_bucket_versioning.evidence]
 }
 
 resource "aws_s3_bucket_public_access_block" "evidence" {

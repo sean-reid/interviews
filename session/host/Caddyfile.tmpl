@@ -13,8 +13,9 @@ ${HOSTNAME_FQDN} {
 	}
 
 	# The app is down for much of an interview by design, so this route 502s
-	# and that is not a fault. The health check below must never depend on
-	# it: the TTL watchdog reads /healthz to decide the host is alive.
+	# and that is not a fault. /healthz below must never depend on it: start
+	# polls /healthz to see the host come up, and the app being broken is
+	# the interview working.
 	handle_path /a/${IV_APP_TOKEN}* {
 		reverse_proxy 127.0.0.1:8003
 	}

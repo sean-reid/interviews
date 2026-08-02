@@ -100,7 +100,7 @@ What the policy allows, and why each part is there:
 | session host lifecycle | security group, elastic IP, instance, and their tags |
 | role and profile under `iv-*` | the host needs an instance role, and only under that prefix |
 | `iam:PassRole` to ec2 only | attaching that role to the instance, and nothing else |
-| the evidence bucket | create it once, then write evidence and read the tarball |
+| the evidence bucket | create and configure it once, then write evidence and read the tarball; the long list of bucket reads is terraform reading back `aws_s3_bucket` |
 
 `Describe*` calls cannot be scoped to a resource, so those are `"Resource": "*"`
 with a region condition. Everything that can be scoped is.
@@ -108,8 +108,12 @@ with a region condition. Everything that can be scoped is.
 Two details worth knowing before editing the file. `iam:PassRole` has no matching
 API call: it is a permission the console and terraform check, and deleting it
 because it does not appear in the API reference breaks the instance profile
-attachment. And every other action name is an API operation, which is checkable
-offline against the model the AWS CLI ships:
+attachment. And several of the S3 bucket actions abbreviate their API operation:
+`s3:GetLifecycleConfiguration` is what authorizes `GetBucketLifecycleConfiguration`,
+and `s3:GetBucketPublicAccessBlock` authorizes `GetPublicAccessBlock`, so check
+those against the S3 page of the service authorization reference. Every other
+action name is an API operation, which is checkable offline against the model
+the AWS CLI ships:
 
 ```sh
 python3 - <<'EOF'
@@ -232,8 +236,12 @@ every 15 minutes it terminates instances whose `TTLMinutes` tag is more than
 15 minutes past their launch time.
 
 It only touches instances carrying `ManagedBy=interviews`, `Interview` and
-`TTLMinutes`, and its IAM can terminate nothing else. Everything it looked at
-and why is in `/aws/lambda/iv-reaper`:
+`TTLMinutes`, and its IAM can terminate nothing else. It also deletes the
+`iv-` roles and instance profiles the interview module tagged once they are a
+day old with no instance attached: a destroy that dies partway strands them,
+they cost nothing so no bill surfaces them, and instance profiles cap at
+1000 per account. Everything it looked at and why is in
+`/aws/lambda/iv-reaper`:
 
 ```sh
 aws logs tail /aws/lambda/iv-reaper --since 1h

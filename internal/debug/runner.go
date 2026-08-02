@@ -1,6 +1,7 @@
 package debug
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,7 +9,9 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -50,11 +53,64 @@ type ExecRunner struct {
 	Stderr io.Writer
 }
 
+// logfmtWarning is a docker compose warning as logrus prints it. Only
+// warnings: an error line, whatever its shape, must reach the user whole.
+var logfmtWarning = regexp.MustCompile(`^(?:time="[^"]*" )?level=warning msg="((?:[^"\\]|\\.)*)"`)
+
+// stderrLines rewrites docker compose's raw logfmt warnings, which arrive
+// with a timestamp in the middle of otherwise hand-written output, into the
+// plain "warning: ..." the rest of this tool speaks. Every other line
+// passes through untouched. It buffers to line boundaries, so the caller
+// flushes after the process exits.
+type stderrLines struct {
+	w   io.Writer
+	buf []byte
+}
+
+func (l *stderrLines) Write(p []byte) (int, error) {
+	l.buf = append(l.buf, p...)
+	for {
+		i := bytes.IndexByte(l.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := rewriteWarning(l.buf[:i+1])
+		l.buf = l.buf[i+1:]
+		if _, err := l.w.Write(line); err != nil {
+			return len(p), err
+		}
+	}
+}
+
+// flush writes whatever a process left without a final newline.
+func (l *stderrLines) flush() {
+	if len(l.buf) == 0 {
+		return
+	}
+	_, _ = l.w.Write(rewriteWarning(l.buf))
+	l.buf = nil
+}
+
+func rewriteWarning(line []byte) []byte {
+	m := logfmtWarning.FindSubmatch(line)
+	if m == nil {
+		return line
+	}
+	msg, err := strconv.Unquote(`"` + string(m[1]) + `"`)
+	if err != nil {
+		return line
+	}
+	return []byte("warning: " + msg + "\n")
+}
+
 func (r *ExecRunner) Command(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
+	stderr := &stderrLines{w: r.Stderr}
 	cmd.Stdout = r.Stdout
-	cmd.Stderr = r.Stderr
-	if err := cmd.Run(); err != nil {
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	stderr.flush()
+	if err != nil {
 		return fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 	return nil
@@ -62,8 +118,10 @@ func (r *ExecRunner) Command(ctx context.Context, name string, args ...string) e
 
 func (r *ExecRunner) Output(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stderr = r.Stderr
+	stderr := &stderrLines{w: r.Stderr}
+	cmd.Stderr = stderr
 	out, err := cmd.Output()
+	stderr.flush()
 	if err != nil {
 		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
@@ -98,11 +156,14 @@ func (r *ExecRunner) Alive(pid int) bool {
 func (r *ExecRunner) Script(ctx context.Context, path, dir string, env map[string]string) error {
 	cmd := exec.CommandContext(ctx, path)
 	cmd.Dir = dir
+	stderr := &stderrLines{w: r.Stderr}
 	cmd.Stdout = r.Stdout
-	cmd.Stderr = r.Stderr
+	cmd.Stderr = stderr
 	cmd.Env = os.Environ()
 	for _, k := range slices.Sorted(maps.Keys(env)) {
 		cmd.Env = append(cmd.Env, k+"="+env[k])
 	}
-	return cmd.Run()
+	err := cmd.Run()
+	stderr.flush()
+	return err
 }

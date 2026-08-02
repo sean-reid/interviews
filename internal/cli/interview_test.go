@@ -156,6 +156,7 @@ func TestSessionsShowPrintsTheURLs(t *testing.T) {
 		Seed: "calm-bison-0731", Problem: "relay", Level: "senior", Mode: interview.AWS,
 		CandidateURL: "https://1.2.3.4.sslip.io/c/tok", ObserverURL: "https://1.2.3.4.sslip.io/o/obs",
 		Evidence: "s3://bucket/calm-bison-0731/", TerraformDir: "/tmp/tf",
+		ContentVersion: "v-0123456789abcdef",
 	})
 	code, stdout, stderr := run(t, "sessions", "show")
 	if code != 0 {
@@ -165,6 +166,7 @@ func TestSessionsShowPrintsTheURLs(t *testing.T) {
 		"calm-bison-0731", "relay", "senior", "aws",
 		"https://1.2.3.4.sslip.io/c/tok", "https://1.2.3.4.sslip.io/o/obs",
 		"s3://bucket/calm-bison-0731/", "/tmp/tf",
+		"v-0123456789abcdef",
 		"interviews grade sheet relay --seed calm-bison-0731",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -358,6 +360,47 @@ func TestStartArgErrors(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Errorf("failed starts recorded sessions: %v", list)
+	}
+}
+
+// --ttl, --instance-type and --infra describe a provisioned host. Without
+// --remote they were accepted and ignored, so a --ttl the interviewer set
+// bounded nothing.
+func TestStartRefusesRemoteFlagsWithoutRemote(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	for _, flags := range [][]string{
+		{"--ttl", "60"},
+		{"--instance-type", "t3.large"},
+		{"--infra", "infra/aws"},
+	} {
+		args := append([]string{"start", "pipeline-meltdown", "--content", goodRoot}, flags...)
+		code, _, stderr := run(t, args...)
+		if code != 2 || !strings.Contains(stderr, "--remote") {
+			t.Errorf("%v: exit %d, stderr %q, want a usage error naming --remote", flags, code, stderr)
+		}
+	}
+	// Nothing above should have left a record behind.
+	if list, err := interview.List(); err != nil || len(list) != 0 {
+		t.Errorf("refused starts recorded sessions: %v, %v", list, err)
+	}
+}
+
+// A registry holding only ended sessions used to answer "no sessions",
+// which reads as the interview never happening, and --all was mentioned
+// only under a non-empty table.
+func TestSessionsSaysWhenOnlyEndedOnesExist(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	record(t, &interview.Session{Seed: "done-otter-0730", Problem: "relay",
+		CreatedAt: time.Now().Add(-26 * time.Hour), EndedAt: time.Now().Add(-25 * time.Hour)})
+	code, stdout, stderr := run(t, "sessions")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "no open sessions") || !strings.Contains(stdout, "--all") {
+		t.Errorf("stdout = %q, want it to say the sessions ended and name --all", stdout)
+	}
+	if strings.Contains(stdout, "interviews start") {
+		t.Errorf("stdout = %q, still reads as an empty registry", stdout)
 	}
 }
 

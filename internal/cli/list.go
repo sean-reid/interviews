@@ -67,16 +67,57 @@ func cmdList(args []string, stdout, stderr io.Writer) int {
 	if *asJSON {
 		return writeJSON(stdout, stderr, items)
 	}
-	w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tTYPE\tKIND\tLEVELS\tTITLE")
-	for _, it := range items {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", it.ID, it.Type, it.kind(), strings.Join(it.Levels, ","), it.Title)
-	}
-	if err := w.Flush(); err != nil {
+	if err := renderList(stdout, items); err != nil {
 		fmt.Fprintf(stderr, "writing output: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// listWidth is the widest a listing row may grow. The table is read in an
+// ordinary terminal beside everything else an interview needs open, and at
+// 149 columns it stopped being a table.
+const listWidth = 100
+
+// renderList prints the table, giving TITLE whatever the width budget has
+// left: it is the one column whose tail carries no identity, so it is the
+// one that gives way.
+func renderList(stdout io.Writer, items []listItem) error {
+	w := tabwriter.NewWriter(stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tTYPE\tKIND\tLEVELS\tTITLE")
+	budget := titleBudget(items)
+	for _, it := range items {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			it.ID, it.Type, it.kind(), strings.Join(it.Levels, ","), truncate(it.Title, budget))
+	}
+	return w.Flush()
+}
+
+// titleBudget is what remains for TITLE once the other columns take what
+// they need: tabwriter pads each cell to its column's widest value plus the
+// two-space gap. Floored so a tree of very long ids still shows some title.
+func titleBudget(items []listItem) int {
+	widths := []int{len("ID"), len("TYPE"), len("KIND"), len("LEVELS")}
+	for _, it := range items {
+		for i, cell := range []string{it.ID, it.Type, it.kind(), strings.Join(it.Levels, ",")} {
+			widths[i] = max(widths[i], len(cell))
+		}
+	}
+	budget := listWidth
+	for _, width := range widths {
+		budget -= width + 2
+	}
+	return max(budget, 10)
+}
+
+// truncate cuts s to limit runes, marking the cut so a shortened title
+// never reads as the whole one.
+func truncate(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit-3]) + "..."
 }
 
 // itemFor projects a manifest into the shape list and describe both print.

@@ -4,7 +4,10 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +16,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/sean-reid/interviews/internal/debug"
+	"github.com/sean-reid/interviews/internal/grading"
 )
 
 // The bundle syncs to the bucket every two minutes while the interview is
@@ -194,5 +201,295 @@ func tarMember(t *testing.T, path, want string) string {
 			}
 			return string(raw)
 		}
+	}
+}
+
+// tarNames lists the member names of a tar.gz.
+func tarNames(t *testing.T, path string) []string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	var names []string
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, hdr.Name)
+	}
+	return names
+}
+
+// exitStatus is a script failure carrying a process exit code, the shape
+// ExecRunner returns for a script that exited non-zero.
+type exitStatus int
+
+func (e exitStatus) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+func (e exitStatus) ExitCode() int { return int(e) }
+
+// A check that could not run is not a fault left unfixed. The score is what
+// a grading sheet reads, so it has to carry the difference.
+func TestRefreshScoreRecordsACheckThatCannotRun(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo", "02-net-policy")
+	r.scriptErr["01-image-typo/check.sh"] = exitStatus(debug.CheckCannotRunExit)
+
+	score, err := RefreshScore(context.Background(), m.Engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score.Fixed != 1 || score.Total != 2 {
+		t.Errorf("score = %d/%d fixed, want 1/2", score.Fixed, score.Total)
+	}
+	if got := score.Faults[0]; got.Fixed || !got.CheckFailed {
+		t.Errorf("fault with the unrunnable check = %+v", got)
+	}
+	if got := score.Faults[1]; !got.Fixed || got.CheckFailed {
+		t.Errorf("fault with the working check = %+v", got)
+	}
+	written, err := grading.LoadScore(wd)
+	if err != nil || written == nil || !written.Faults[0].CheckFailed {
+		t.Errorf("score.json = %+v, %v", written, err)
+	}
+}
+
+func TestEvidenceBundlesWhatExists(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo", "02-net-policy")
+	for _, name := range []string{TimelineFile, CastFile, RawLogFile} {
+		if err := os.WriteFile(filepath.Join(wd, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.scriptErr["02-net-policy/check.sh"] = errors.New("still broken")
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	names := tarNames(t, filepath.Join(wd, EvidenceFile))
+	want := []string{debug.StateFile, grading.ScoreFile, TimelineFile, CastFile, RawLogFile}
+	if fmt.Sprint(names) != fmt.Sprint(want) {
+		t.Errorf("bundle members = %v, want %v", names, want)
+	}
+
+	// The refresh ran the real check paths and recorded the broken fault.
+	score, err := grading.LoadScore(wd)
+	if err != nil || score == nil {
+		t.Fatalf("LoadScore = %v, %v", score, err)
+	}
+	if score.Fixed != 1 || score.Total != 2 || !score.Verified {
+		t.Errorf("score = %+v", score)
+	}
+}
+
+func TestEvidenceToleratesCheckErrors(t *testing.T) {
+	m, _, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	// State naming an unknown fault makes the score refresh itself error,
+	// not just report a fault broken.
+	writeState(t, wd, "99-ghost")
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{Final: true}); err != nil {
+		t.Fatalf("final evidence must never abort on a check error: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(wd, ScoreErrorFile))
+	if err != nil || !strings.Contains(string(raw), "99-ghost") {
+		t.Errorf("score-error.txt = %q, %v", raw, err)
+	}
+	names := tarNames(t, filepath.Join(wd, EvidenceFile))
+	if fmt.Sprint(names) != fmt.Sprint([]string{debug.StateFile, ScoreErrorFile}) {
+		t.Errorf("bundle members = %v", names)
+	}
+
+	// A periodic (non-final) pass still bundles but surfaces the error.
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err == nil {
+		t.Error("non-final evidence should surface the refresh error")
+	}
+}
+
+func TestEvidenceUploadsToS3(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{S3: "s3://bucket/prefix/"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "aws s3 cp " + filepath.Join(wd, EvidenceFile) + " s3://bucket/prefix/" + EvidenceFile
+	if len(r.callsMatching(want)) != 1 {
+		t.Errorf("no upload call %q in %v", want, r.calls)
+	}
+}
+
+// The checks print as they run, so an evidence pass that says nothing
+// leaves the operator reading a kubectl timeout as the command failing,
+// with no idea whether a bundle was written or where.
+func TestEvidenceSaysWhatItDidAndWhereTheBundleIs(t *testing.T) {
+	m, _, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	tarPath := filepath.Join(m.Engine.Workdir, EvidenceFile)
+	for _, want := range []string{"score: 1/1 faults fixed", "evidence: " + tarPath} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("evidence output missing %q, got %q", want, out.String())
+		}
+	}
+}
+
+// A refresh that could not run must not pass for a clean pass: the score in
+// the bundle is then the previous one, and the sheet will date it.
+func TestEvidenceNamesAFailedRefresh(t *testing.T) {
+	m, _, out := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "nonexistent-fault")
+
+	err := m.Evidence(context.Background(), EvidenceOptions{Final: true})
+	if err != nil {
+		t.Fatalf("final pass = %v, want it to record the failure and carry on", err)
+	}
+	if !strings.Contains(out.String(), "could not be refreshed") {
+		t.Errorf("failed refresh not reported: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "evidence: ") {
+		t.Errorf("bundle location not reported: %q", out.String())
+	}
+}
+
+// Teardown removes the environment but keeps the workdir, so an evidence
+// pass afterwards must not try to check faults that are gone.
+func TestEvidenceSkipsTheRefreshAfterTeardown(t *testing.T) {
+	m, r, _ := testManager(t, nil)
+	writeState(t, m.Engine.Workdir, "01-image-typo")
+	st, err := debug.LoadState(m.Engine.Workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.TornDownAt = time.Now()
+	raw, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.Engine.Workdir, debug.StateFile), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.callsMatching("check.sh"); len(got) != 0 {
+		t.Errorf("checked a torn-down environment: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(m.Engine.Workdir, EvidenceFile)); err != nil {
+		t.Errorf("no bundle written after teardown: %v", err)
+	}
+}
+
+// tarFile returns one member's contents.
+func tarFile(t *testing.T, path, want string) []byte {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			t.Fatalf("%s has no %s", path, want)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Name != want {
+			continue
+		}
+		raw, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int64(len(raw)) != hdr.Size {
+			t.Fatalf("%s header says %d bytes, body has %d", want, hdr.Size, len(raw))
+		}
+		return raw
+	}
+}
+
+// The bundle is the artifact that leaves the machine and sits in a bucket.
+// Nothing grading needs is a credential: the URL tokens are the whole of
+// the session authentication, and the candidate kubeconfig is cluster
+// access.
+func TestEvidenceBundleCarriesNoCredentials(t *testing.T) {
+	m, _, _ := testManager(t, nil)
+	wd := m.Engine.Workdir
+	writeState(t, wd, "01-image-typo")
+	if err := os.WriteFile(filepath.Join(wd, KubeconfigFile), []byte("token: sa-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(context.Background(), StartOptions{
+		BaseURL:        "https://host/",
+		CandidateToken: strings.Repeat("c", 32),
+		ObserverToken:  strings.Repeat("o", 32),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Evidence(context.Background(), EvidenceOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	tarPath := filepath.Join(wd, EvidenceFile)
+
+	if slices.Contains(tarNames(t, tarPath), KubeconfigFile) {
+		t.Error("bundle carries the candidate kubeconfig")
+	}
+	info := tarFile(t, tarPath, InfoFile)
+	for _, secret := range []string{strings.Repeat("c", 32), strings.Repeat("o", 32)} {
+		if strings.Contains(string(info), secret) {
+			t.Errorf("bundled %s carries a URL token", InfoFile)
+		}
+	}
+	// Still readable, and still says which session it was.
+	var parsed Info
+	if err := json.Unmarshal(info, &parsed); err != nil {
+		t.Fatalf("bundled %s is not valid json: %v", InfoFile, err)
+	}
+	if parsed.Problem == "" || parsed.StartedAt.IsZero() {
+		t.Errorf("redaction took the parts grading reads: %+v", parsed)
+	}
+
+	// The workdir copy keeps them: the host needs the tokens while the
+	// session runs.
+	local, err := LoadInfo(wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.CandidateToken == "" {
+		t.Error("redacted the workdir copy, not just the bundle")
 	}
 }

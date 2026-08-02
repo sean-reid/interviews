@@ -211,6 +211,9 @@ func cmdFault(args []string, stdout, stderr io.Writer) int {
 		if len(pos) > 2 {
 			faultID = pos[2]
 		}
+		// Fixing names the faults just like status does, and with no fault id
+		// it applies the answer key to all of them.
+		fmt.Fprintln(stdout, answerKeyNotice)
 		if err := e.Fix(ctx, faultID); err != nil {
 			fmt.Fprintf(stderr, "interviews fault fix: %v\n", err)
 			return 1

@@ -456,6 +456,12 @@ func (e *Engine) Fix(ctx context.Context, id string) error {
 	} else if len(ids) > 1 {
 		extra = map[string]string{"IV_FIX_FAST": "1"}
 	}
+	// An empty pack has to say so: fix with no id used to loop zero times
+	// and exit 0 in silence, which reads as work done.
+	if len(ids) == 0 {
+		e.logf("no faults are injected; nothing to fix")
+		return nil
+	}
 	for _, fid := range ids {
 		f, ok := e.Scenario.Fault(fid)
 		if !ok {
@@ -465,6 +471,9 @@ func (e *Engine) Fix(ctx context.Context, id string) error {
 		if err := e.script(ctx, f.Script("fix.sh"), extra); err != nil {
 			return fmt.Errorf("fix %s: %w", fid, err)
 		}
+		// Named like the status table names it, so what was just applied
+		// reads against what status reported.
+		e.logf("fixed %s (%s)", fid, f.Spec.Title)
 	}
 	return nil
 }

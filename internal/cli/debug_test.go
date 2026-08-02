@@ -63,6 +63,38 @@ func TestFaultStatusNamesACheckThatCannotRun(t *testing.T) {
 	}
 }
 
+// fault fix with no fault id applies the answer key to every injected
+// fault, and it used to do so while printing nothing between start and exit
+// 0: one mistyped verb away from fault status, mid-interview.
+func TestFaultFixNamesWhatItFixed(t *testing.T) {
+	wd := stateFor(t, "01-image-typo", "02-net-policy")
+	code, stdout, stderr := run(t, "fault", "fix", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--set", "fault_pack=pack-b", "--workdir", wd)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	for _, want := range []string{
+		"interviewer only",
+		"fixed 01-image-typo (Image tag typo)",
+		"fixed 02-net-policy (NetworkPolicy label mismatch)",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("fix output missing %q:\n%s", want, stdout)
+		}
+	}
+
+	// With nothing injected it says so instead of exiting 0 in silence.
+	empty := stateFor(t)
+	code, stdout, stderr = run(t, "fault", "fix", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--set", "fault_pack=pack-b", "--workdir", empty)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "nothing to fix") {
+		t.Errorf("empty fix output = %q", stdout)
+	}
+}
+
 func TestProveArgErrors(t *testing.T) {
 	if code, _, _ := run(t, "prove", "--content", goodRoot); code != 2 {
 		t.Error("prove without problem id should be a usage error")

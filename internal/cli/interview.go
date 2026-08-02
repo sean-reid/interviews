@@ -45,6 +45,22 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	}
 	problemID := pos[0]
 
+	// Silently ignoring these ran a local session while the flags described a
+	// host: a --ttl the interviewer set and nothing honoured.
+	if !*remote {
+		var remoteOnly []string
+		for _, name := range []string{"ttl", "instance-type", "infra"} {
+			if passed(fs, name) {
+				remoteOnly = append(remoteOnly, "--"+name)
+			}
+		}
+		if len(remoteOnly) > 0 {
+			fmt.Fprintf(stderr, "interviews start: %s only means something with --remote\n",
+				strings.Join(remoteOnly, ", "))
+			return 2
+		}
+	}
+
 	level, err := parseLevel(*levelFlag)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
@@ -339,6 +355,10 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 		switch {
 		case *waiting:
 			fmt.Fprintln(stdout, "nothing is waiting on you")
+		case !*all && len(known) > 0:
+			// "no sessions" here read as the interview never happening, when
+			// the registry holds it and the default filter hides it.
+			fmt.Fprintf(stdout, "no open sessions; %d ended (interviews sessions --all lists them)\n", len(known))
 		default:
 			fmt.Fprintln(stdout, "no sessions (interviews start <problem> begins one)")
 		}
@@ -432,7 +452,8 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 	}
 	rows = append(rows,
 		[2]string{"workdir", rec.Workdir},
-		[2]string{"evidence", rec.Evidence})
+		[2]string{"evidence", rec.Evidence},
+		[2]string{"content version", rec.ContentVersion})
 	if rec.TerraformDir != "" {
 		rows = append(rows, [2]string{"terraform", rec.TerraformDir})
 	}

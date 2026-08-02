@@ -270,10 +270,24 @@ func TestGradeHintRefusesASeedWithNoSession(t *testing.T) {
 	}
 }
 
-// The remote flow logs hints from the interviewer's machine, where no
-// environment exists, so an explicit directory still gets created.
-func TestGradeHintCreatesAnExplicitWorkdirAndNamesTheLedger(t *testing.T) {
-	wd := filepath.Join(t.TempDir(), "calm-bison-0731")
+// --workdir with a typo in it used to be created and reported as success,
+// while the seed-derived default is guarded against exactly that mistake.
+// An explicit directory has to exist already; one that does gets the ledger.
+func TestGradeHintRefusesAMissingExplicitWorkdir(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "typo")
+	code, _, stderr := run(t, "grade", "hint", "pipeline-meltdown", "asked about the events",
+		"--content", goodRoot, "--seed", "test-seed", "--minute", "9", "--workdir", missing)
+	if code == 0 {
+		t.Fatal("exit 0 for a --workdir that does not exist")
+	}
+	if !strings.Contains(stderr, missing) {
+		t.Errorf("stderr does not name the directory: %q", stderr)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("the missing directory was created anyway")
+	}
+
+	wd := t.TempDir()
 	code, stdout, stderr := run(t, "grade", "hint", "pipeline-meltdown", "asked about the events",
 		"--content", goodRoot, "--seed", "test-seed", "--minute", "9", "--workdir", wd)
 	if code != 0 {

@@ -28,14 +28,20 @@ candidate/          what the candidate receives
 interviewer/        notes, probes, reference answers; never delivered
 ```
 
-Each type then requires its own files, and `validate` refuses a problem
-missing any of them:
+Every type requires `candidate/brief.md`: it is the exact text the candidate
+starts from. Each type then requires its own files on top, and `validate`
+refuses a problem missing any of them:
 
 | Type | Also required |
 |---|---|
 | debugging | `env.yaml`, `faults/` with at least one fault, `env/` verify script |
-| takehome | `candidate/brief.md`, `interviewer/probes.md` |
+| takehome | `interviewer/probes.md`; the brief must tell the candidate to write the stopping-point writeup |
 | sysdesign | `candidate/brief.md` pointing at `candidate/constraints.md`, `review.yaml`, `interviewer/probes.md`, `interviewer/reference.md` |
+
+The delivered bundle opens with a generated ABOUT.md front page; the brief is
+yours, the front page is not. A take-home that ships a `harness/` directory
+gets a front-page line pointing the candidate at it, so put runner tooling
+there.
 
 The offline types demand a probe pack because the live review is where they are
 scored: a document read alone tells you what someone can write, and the review
@@ -49,8 +55,9 @@ is not a failure mode; forgetting to expose it is, and it shows up as an empty
 bundle rather than a leak.
 
 On top of that, `interviewer/` and `faults/` can never be exposed, at any depth,
-whatever the globs say, and the check is case-insensitive because a
-case-insensitive filesystem would otherwise let `Interviewer/` through. Symlinks
+and neither can `problem.yaml`, `env.yaml`, or `review.yaml`, whatever the
+globs say. The check is case-insensitive because a case-insensitive filesystem
+would otherwise let `Interviewer/` through. Symlinks
 and hard links never count as candidate-visible: a link at a candidate path can
 point at an answer key.
 
@@ -98,6 +105,10 @@ visibility:
 `levels` is what the problem claims to grade, and the sheet prints the
 calibration band for the level an interview was started with.
 
+A parameter with a `default` is pinned to it: it is never drawn, and only an
+explicit override changes it. String parameters must declare one, since there
+is nothing sensible to draw a string from.
+
 ## Variants
 
 Every parameter resolves from `SHA-256(problem | interview id | parameter
@@ -109,6 +120,11 @@ existing seed keeps resolving to the same problem it did last week.
 Candidate-visible text is a Go template rendered with the resolved parameters,
 so `{{.team_name}}` in a brief becomes the drawn value. Referencing an
 undeclared parameter is a validation error rather than an empty string.
+
+Only known text extensions and extensionless files are rendered; the list
+lives in `variant.IsTemplated`. Anything else ships byte for byte, so a
+template hole in, say, a `.png` name is never substituted and fails the
+bundle's leak gate instead of shipping half-rendered.
 
 Debugging problems have a rule of their own: 500 seeds must resolve to at least
 450 distinct environments. A problem that varies in nothing but its fault pack
@@ -134,6 +150,11 @@ app:                          # optional: what a candidate can open in a browser
   port: "80"                  # published host port on compose; a template is allowed
   path: /
 ```
+
+Environment files may reference two builtins on top of the declared
+parameters: `{{._dir}}`, the problem directory on disk, for absolute build
+contexts in compose files, and `{{._workdir}}`, the session's state
+directory. Candidate-visible files get neither.
 
 `verify` defines what healthy means for the whole scenario, and it is the thing
 `prove` uses to decide the pack broke the app. A verify that cannot fail makes
@@ -162,9 +183,14 @@ settle_seconds: 5             # grace before the broken check, for slow symptoms
 fix_timeout_seconds: 120      # bound on convergence polling after fix.sh
 ```
 
-Scripts receive `IV_PROBLEM`, `IV_SEED`, `IV_ENV`, `IV_WORKDIR`, provider
-variables, and every parameter as `IV_PARAM_<NAME>`. Read values from those
-rather than hardcoding them, or the fault only works for one variant.
+Every script, `verify` included, must carry the executable bit; `validate`
+refuses one that does not.
+
+Scripts receive `IV_PROBLEM`, `IV_SEED`, `IV_ENV`, `IV_WORKDIR`, the
+provider's variables, and every parameter as `IV_PARAM_<NAME>`. On kind the
+provider sets `IV_NAMESPACE`, `IV_CLUSTER`, and `KUBECONFIG`; on compose,
+`IV_COMPOSE_FILE` and `IV_PROJECT`. Read values from those rather than
+hardcoding them, or the fault only works for one variant.
 
 Two rules cost real debugging time when broken:
 
@@ -195,10 +221,17 @@ curveballs:                   # introduced mid-review
     probes: What to ask next.
     good_move: What a strong answer does.
     red_flag: What a weak one does.
+  - id: budget-halves
+    prompt: What you tell them.
+    probes: What to ask next.
+    good_move: What a strong answer does.
+    red_flag: What a weak one does.
 ```
 
-A design that only survives its original assumptions is the thing worth finding
-out about, which is what the curveballs are for.
+At least one tension and at least two curveballs are required, so a review
+can escalate past the first change. A design that only survives its original
+assumptions is the thing worth finding out about, which is what the
+curveballs are for.
 
 ## Worked examples
 

@@ -54,7 +54,8 @@ the case. There is no code to write and nothing to run.
 
 Spend about {{.Hours}} hours. The problem is deliberately larger than that
 budget, so nobody is expected to finish; use the time well and stop when it
-runs out, and write the STOPPING-POINT.md the brief asks for.
+runs out. When you stop, write STOPPING-POINT.md next to your design
+document: what is settled, what is not, and what you would work out next.
 
 Afterwards we spend an hour working through your design together. Expect the
 requirements to change while you are defending it.

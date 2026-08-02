@@ -168,7 +168,7 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 		// account whether the seed names something real before giving up.
 		if adopted, aerr := adoptOrNot(seed); adopted != nil {
 			fmt.Fprintf(stderr, "no record of %s here; ending it from the account\n", seed)
-			return endRemote(adopted, stdout, stderr)
+			return endRemote(adopted, *purge, stdout, stderr)
 		} else if aerr != nil {
 			fmt.Fprintf(stderr, "interviews end: %v\n%s\n", err, aerr)
 			return 1
@@ -177,7 +177,7 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if rec.Mode == interview.AWS {
-		return endRemote(rec, stdout, stderr)
+		return endRemote(rec, *purge, stdout, stderr)
 	}
 	root := contentRootFor(rec.ContentRoot, *contentRoot, passed(fs, "content"))
 	e, err := engineFor(root, rec.Problem, rec.Seed, rec.Workdir, nil, stdout, stderr)
@@ -191,12 +191,13 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 	if err := session.NewManager(e, stdout).Stop(ctx); err != nil {
 		fmt.Fprintf(stderr, "interviews end: stopping the session: %v\n", err)
 	}
+	_, existed := purgeTarget(e)
 	kept, err := e.Down(ctx, *purge)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
 		return 1
 	}
-	reportTeardown(stdout, e, kept, *purge)
+	reportTeardown(stdout, e, kept, *purge, existed)
 	rec.EndedAt = time.Now()
 	if *purge {
 		rec.Evidence = ""

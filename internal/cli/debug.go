@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -71,8 +72,20 @@ func envFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, 
 // reportTeardown says where the evidence went. Teardown is the last step of
 // an interview, so silence here reads as "the session is filed away" when
 // nothing has been filed anywhere.
-func reportTeardown(stdout io.Writer, e *debug.Engine, kept []string, purged bool) {
+// purgeTarget reports what --purge would delete, and whether it is there.
+// A seed with a typo in it derives a workdir that never existed, and purge
+// used to report deleting it in exactly the same words as a real deletion.
+func purgeTarget(e *debug.Engine) (string, bool) {
+	_, err := os.Stat(e.Workdir)
+	return e.Workdir, err == nil
+}
+
+func reportTeardown(stdout io.Writer, e *debug.Engine, kept []string, purged, existed bool) {
 	if purged {
+		if !existed {
+			fmt.Fprintf(stdout, "environment %s down; there was no evidence at %s to delete\n", e.EnvName(), e.Workdir)
+			return
+		}
 		fmt.Fprintf(stdout, "environment %s down, %s deleted\n", e.EnvName(), e.Workdir)
 		return
 	}
@@ -115,8 +128,9 @@ func cmdEnv(args []string, stdout, stderr io.Writer) int {
 		}
 	case "down":
 		var kept []string
+		_, existed := purgeTarget(e)
 		if kept, err = e.Down(ctx, purge); err == nil {
-			reportTeardown(stdout, e, kept, purge)
+			reportTeardown(stdout, e, kept, purge, existed)
 		}
 	}
 	if err != nil {

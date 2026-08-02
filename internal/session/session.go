@@ -659,32 +659,21 @@ func (m *Manager) Stop(ctx context.Context) error {
 	if info, err := LoadInfo(m.Engine.Workdir); err == nil {
 		socket = info.TmuxSocket
 	}
-	dir := filepath.Join(m.Engine.Workdir, pidsDir)
-	entries, err := os.ReadDir(dir)
-	if err != nil && !os.IsNotExist(err) {
+	// Only what is still alive gets a signal: after a reboot the recorded
+	// pids belong to whatever recycled them, exactly the case the stale
+	// pidfile sweep in refuseIfRunning exists for.
+	live, err := m.livePids()
+	if err != nil {
 		return err
 	}
-	for _, ent := range entries {
-		if !strings.HasSuffix(ent.Name(), ".pid") {
-			continue
-		}
-		path := filepath.Join(dir, ent.Name())
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if pid := strings.TrimSpace(string(raw)); pid != "" {
-			if err := m.Engine.Runner.Command(ctx, "kill", pid); err != nil {
-				fmt.Fprintf(m.Out, "kill %s (%s): %v\n", pid, ent.Name(), err)
-			}
-		}
-		if err := os.Remove(path); err != nil {
-			return err
+	for _, p := range live {
+		if err := m.Engine.Runner.Command(ctx, "kill", strconv.Itoa(p.pid)); err != nil {
+			fmt.Fprintf(m.Out, "kill %d (%s): %v\n", p.pid, p.name, err)
 		}
 	}
 	// The directory is scratch, not evidence: leaving it behind makes
 	// teardown report it as something worth keeping.
-	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
+	if err := os.RemoveAll(filepath.Join(m.Engine.Workdir, pidsDir)); err != nil {
 		fmt.Fprintf(m.Out, "leftover %s: %v\n", pidsDir, err)
 	}
 	// The candidate kubeconfig is a credential for a cluster that is about

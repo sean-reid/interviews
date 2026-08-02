@@ -35,7 +35,7 @@ prereqs() {
   # shellcheck disable=SC2086
   apt-get $apt_opts install -y --no-install-recommends \
     docker.io docker-compose-v2 tmux asciinema caddy curl ca-certificates \
-    unzip gettext-base sudo
+    unzip gettext-base sudo iptables
 
   arch=$(dpkg --print-architecture)
   case "$arch" in
@@ -134,6 +134,20 @@ mkdir -p /var/log
 exec > >(tee -a /var/log/iv-provision.log) 2>&1
 echo "provisioning started $(date -Is)"
 
+# Arm the self-destruct before anything that can fail. iv-ttl.service cannot
+# do this job alone: it ships inside the tarball, so it is not enabled until
+# the end, and set -e means an apt mirror hiccup three minutes in leaves an
+# instance running with nothing to stop it and no ssh to reach it by. There is
+# no reaper outside the guest. The unit re-arms from the same deadline once
+# the session is up, which is what makes the clock start at interview ready.
+if [ -r /etc/interviews/session.env ]; then
+  # shellcheck source=/dev/null
+  ttl=$(. /etc/interviews/session.env && printf '%s' "${IV_TTL_MINUTES:-120}")
+  shutdown -P "+${ttl}" >/dev/null 2>&1 &&
+    echo "self-destruct armed for ${ttl} minutes from now" ||
+    echo "could not arm the self-destruct; this host may outlive its ttl"
+fi
+
 bootstrap_aws || echo "could not install the aws cli early: milestones will start late"
 milestone "provisioning started, installing prerequisites"
 
@@ -170,6 +184,34 @@ trap upload_log EXIT
 id interviewer &>/dev/null || useradd --create-home --shell /bin/bash interviewer
 usermod -aG docker interviewer
 id candidate &>/dev/null || useradd --create-home --shell /bin/bash candidate
+
+# The instance role can read the content tarball, which packs every problem's
+# answer keys, and the metadata service will hand that role to anyone who asks
+# from this host. IMDSv2 and a hop limit of one stop a container, not a shell:
+# the candidate has one, as a real local uid. So drop their egress to the
+# metadata address outright. Nothing the candidate does needs it, and without
+# this the whole two-account split is decoration.
+iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner candidate -j REJECT ||
+  echo "could not install the metadata rule; the check below decides"
+# The rule is the mechanism, the next two checks are the property. Root asks
+# first: on a box where the metadata service is unreachable for any other
+# reason, a candidate who also cannot reach it proves nothing, and a container
+# is exactly that box. Only when root gets through is the candidate's failure
+# evidence that the rule is what stopped them.
+imds_token() {
+  ${1:+sudo -u "$1"} curl -s --max-time 3 -X PUT \
+    http://169.254.169.254/latest/api/token \
+    -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' >/dev/null 2>&1
+}
+if imds_token ""; then
+  if imds_token candidate; then
+    echo "candidate can still reach the metadata service; refusing to provision" >&2
+    exit 1
+  fi
+  echo "metadata service reachable here, and blocked for the candidate"
+else
+  echo "no metadata service to reach; nothing to block"
+fi
 
 # The two accounts meet in one group, which is what lets the interviewer's
 # recorder and observer attach to the candidate's tmux server.
@@ -216,6 +258,11 @@ set -a
 set +a
 HOSTNAME_FQDN="$HOSTNAME_FQDN" envsubst '${HOSTNAME_FQDN} ${IV_CANDIDATE_TOKEN} ${IV_OBSERVER_TOKEN} ${IV_APP_TOKEN}' \
   </opt/interviews/session/host/Caddyfile.tmpl >/etc/caddy/Caddyfile
+# The rendered file holds all three tokens, and the redirect leaves it with
+# the caddy package's 0644. The tokens are the whole of the URL
+# authentication, so a candidate reading this file gets the observer route.
+chown root:caddy /etc/caddy/Caddyfile
+chmod 0640 /etc/caddy/Caddyfile
 
 systemctl daemon-reload
 systemctl enable --now docker

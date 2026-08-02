@@ -15,6 +15,16 @@ import (
 // and the two pins move together. Digest pinned, because the tag is mutable.
 const DefaultNodeImage = "kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f"
 
+// podSecurityLabels confine the candidate. The Role a problem grants can
+// patch workloads, which is enough to rewrite a pod template as privileged
+// with a hostPath mount and exec through it onto the host; baseline
+// admission is what refuses such pods. The provider sets the labels itself
+// so a problem authored without them does not silently open that path.
+var podSecurityLabels = []string{
+	"pod-security.kubernetes.io/enforce=baseline",
+	"pod-security.kubernetes.io/enforce-version=latest",
+}
+
 // kindProvider hosts kubernetes-flavor scenarios in a local kind cluster.
 // Images build locally and load into the cluster; nothing needs a registry.
 type kindProvider struct {
@@ -90,7 +100,21 @@ func (p *kindProvider) Up(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return r.Command(ctx, "kubectl", "--kubeconfig", p.kubeconfig(), "apply", "-R", "-f", manifests)
+	if err := r.Command(ctx, "kubectl", "--kubeconfig", p.kubeconfig(), "apply", "-R", "-f", manifests); err != nil {
+		return err
+	}
+
+	ns, err := p.namespace()
+	if err != nil {
+		return err
+	}
+	// The manifests create the namespace, so the labels can only land
+	// after apply. That is early enough: the candidate gets in only
+	// after Up returns, and admission judges pods at creation, so
+	// anything they spawn is already confined. --overwrite keeps
+	// manifests that declare the same labels working.
+	args := append([]string{"--kubeconfig", p.kubeconfig(), "label", "--overwrite", "namespace", ns}, podSecurityLabels...)
+	return r.Command(ctx, "kubectl", args...)
 }
 
 func (p *kindProvider) Down(ctx context.Context) error {

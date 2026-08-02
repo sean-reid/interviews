@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sean-reid/interviews/internal/grading"
 	"github.com/sean-reid/interviews/internal/interview"
@@ -311,5 +312,43 @@ func TestGradeSheetTakesTheLevelFromTheSession(t *testing.T) {
 	if code, _, stderr := run(t, "grade", "sheet", "pipeline-meltdown", "--content", goodRoot,
 		"--level", "wizard"); code != 2 || !strings.Contains(stderr, "--level") {
 		t.Errorf("bad level: exit %d, stderr %q", code, stderr)
+	}
+}
+
+// The other half of hinting a remote session: interviews hint puts the
+// ledger in a per-seed location because there is no workdir here, and the
+// sheet has to pick it up without being handed --hints. A hint nobody reads
+// is the same as one never logged.
+func TestGradeSheetFindsHintsLoggedAgainstASeed(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	evidence := stateFor(t, "01-image-typo")
+	if code, _, stderr := run(t, "grade", "score", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--set", "fault_pack=pack-b",
+		"--workdir", evidence); code != 0 {
+		t.Fatalf("grade score failed: %s", stderr)
+	}
+	remote := record(t, &interview.Session{
+		Seed: "test-seed", Problem: "pipeline-meltdown", Mode: interview.AWS,
+		Host: "203.0.113.7", CreatedAt: time.Now().Add(-20 * time.Minute),
+	})
+	// A provisioned host keeps its workdir on the host, which is the whole
+	// reason the ledger has to live somewhere else.
+	remote.Workdir = ""
+	if err := interview.Save(remote); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run(t, "hint", "asked what the events said",
+		"--seed", "test-seed", "--minute", "14"); code != 0 {
+		t.Fatalf("hint failed: %s", stderr)
+	}
+
+	// No --hints: finding it is the point.
+	code, stdout, stderr := run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", evidence)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "| 14 | asked what the events said |") {
+		t.Errorf("the sheet does not carry the hint:\n%s", stdout)
 	}
 }

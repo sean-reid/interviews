@@ -10,9 +10,11 @@ import (
 )
 
 // contentClone makes a throwaway clone of this repository and returns the
-// clone and its content root. Real git against a real repository, because
-// what is under test is what git reports; and cloning rather than building a
-// fixture means no commit is ever authored here.
+// clone and a content root inside it. The root is the tracked examples/
+// tree: contentStatus only cares what git reports about a directory, and
+// examples/ is one this repository always carries. Real git against a real
+// repository, because what is under test is what git reports; and cloning
+// rather than building a fixture means no commit is ever authored here.
 func contentClone(t *testing.T) (clone, root string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -47,9 +49,10 @@ func contentClone(t *testing.T) (clone, root string) {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	root = filepath.Join(clone, "content")
+	root = filepath.Join(clone, "examples")
 	if _, err := os.Stat(root); err != nil {
-		t.Skipf("no content tree to test against: %v", err)
+		// Fatal rather than skip: a skipped staleness test is invisible in CI.
+		t.Fatalf("clone has no examples tree: %v", err)
 	}
 	return clone, root
 }
@@ -117,10 +120,6 @@ func TestContentStatusSeesCommitsItDoesNotHave(t *testing.T) {
 
 func TestContentStatusSeesUncommittedChanges(t *testing.T) {
 	_, root := contentClone(t)
-	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) == 0 {
-		t.Skip("no content to edit")
-	}
 	scratch := filepath.Join(root, "scratch-for-test.txt")
 	if err := os.WriteFile(scratch, []byte("edited\n"), 0o644); err != nil {
 		t.Fatal(err)

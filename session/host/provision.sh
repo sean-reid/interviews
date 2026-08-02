@@ -198,10 +198,14 @@ iptables -I OUTPUT -d 169.254.169.254 -m owner --uid-owner candidate -j REJECT |
 # reason, a candidate who also cannot reach it proves nothing, and a container
 # is exactly that box. Only when root gets through is the candidate's failure
 # evidence that the rule is what stopped them.
+# A token, not a reply. Plain curl exits 0 for any HTTP response, so a 400
+# from some other cloud's metadata service at the same link-local address
+# reads as success and refuses to provision: -f rejects the status, and the
+# grep rejects an empty body.
 imds_token() {
-  ${1:+sudo -u "$1"} curl -s --max-time 3 -X PUT \
+  ${1:+sudo -u "$1"} curl -sf --max-time 3 -X PUT \
     http://169.254.169.254/latest/api/token \
-    -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' >/dev/null 2>&1
+    -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' 2>/dev/null | grep -q .
 }
 if imds_token ""; then
   if imds_token candidate; then

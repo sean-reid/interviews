@@ -107,6 +107,13 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		TerraformDir: dir, TTLMinutes: opts.TTLMinutes,
 		Evidence: fmt.Sprintf("s3://%s/%s/", a.Bucket, seed),
 	}
+	// Which content this host runs is otherwise unrecoverable: the tarball
+	// key never changes and the host does not report what it unpacked.
+	if v, verr := tarballVersion(env, a.TarballURI); verr == nil {
+		rec.ContentVersion = v
+	} else {
+		fmt.Fprintf(stderr, "warning: could not read the content version: %v\n", verr)
+	}
 	if err := interview.Save(rec); err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
@@ -403,6 +410,33 @@ func (t *logTail) print(out io.Writer) bool {
 		fmt.Fprintln(out)
 	}
 	return wrote
+}
+
+// tarballVersion asks S3 for the current version id of the content tarball.
+// The key is fixed and the bucket versioned, so this id is the only thing
+// that says which content a host booted from.
+func tarballVersion(env []string, uri string) (string, error) {
+	rest, ok := strings.CutPrefix(uri, "s3://")
+	if !ok {
+		return "", fmt.Errorf("tarball uri %q is not an s3:// uri", uri)
+	}
+	bucket, key, ok := strings.Cut(rest, "/")
+	if !ok || key == "" {
+		return "", fmt.Errorf("tarball uri %q names no key", uri)
+	}
+	cmd := exec.Command("aws", "s3api", "head-object",
+		"--bucket", bucket, "--key", key, "--query", "VersionId", "--output", "text")
+	cmd.Env = env
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("aws s3api head-object: %w", err)
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "None" {
+		// What S3 reports on a bucket without versioning: nothing to record.
+		v = ""
+	}
+	return v, nil
 }
 
 // fetchProvisionLog streams the log out of the bucket. Absent is not an

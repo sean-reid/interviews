@@ -155,6 +155,13 @@ func setupAWS(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
+	// The bucket keeps every version of the tarball; the id is what lets a
+	// session record say which one its host ran.
+	if v, err := tarballVersion(env, uri); err == nil && v != "" {
+		fmt.Fprintf(stdout, "content version: %s\n", v)
+	} else if err != nil {
+		fmt.Fprintf(stderr, "warning: could not read the content version back: %v\n", err)
+	}
 
 	c := interview.LoadConfig()
 	c.AWS = &interview.AWSSetup{

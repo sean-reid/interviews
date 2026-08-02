@@ -75,6 +75,10 @@ type Session struct {
 	Workdir      string `json:"workdir"`
 	ContentRoot  string `json:"content_root,omitempty"`
 	TerraformDir string `json:"terraform_dir,omitempty"`
+	// ContentVersion is the S3 version id of the content tarball a
+	// provisioned host booted from. The tarball key never changes, so this
+	// is the only record of which content the session actually ran.
+	ContentVersion string `json:"content_version,omitempty"`
 	// Evidence is where the bundle lands: a directory locally, an s3 URI
 	// for a provisioned host.
 	Evidence string `json:"evidence,omitempty"`

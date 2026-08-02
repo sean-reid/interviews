@@ -156,6 +156,7 @@ func TestSessionsShowPrintsTheURLs(t *testing.T) {
 		Seed: "calm-bison-0731", Problem: "relay", Level: "senior", Mode: interview.AWS,
 		CandidateURL: "https://1.2.3.4.sslip.io/c/tok", ObserverURL: "https://1.2.3.4.sslip.io/o/obs",
 		Evidence: "s3://bucket/calm-bison-0731/", TerraformDir: "/tmp/tf",
+		ContentVersion: "v-0123456789abcdef",
 	})
 	code, stdout, stderr := run(t, "sessions", "show")
 	if code != 0 {
@@ -165,6 +166,7 @@ func TestSessionsShowPrintsTheURLs(t *testing.T) {
 		"calm-bison-0731", "relay", "senior", "aws",
 		"https://1.2.3.4.sslip.io/c/tok", "https://1.2.3.4.sslip.io/o/obs",
 		"s3://bucket/calm-bison-0731/", "/tmp/tf",
+		"v-0123456789abcdef",
 		"interviews grade sheet relay --seed calm-bison-0731",
 	} {
 		if !strings.Contains(stdout, want) {

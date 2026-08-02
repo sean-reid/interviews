@@ -46,6 +46,38 @@ func stubTool(t *testing.T, name, out string) string {
 	return log
 }
 
+// The tarball key never changes, so the S3 version id is the only thing
+// that says which content a host ran. head-object reports the current one.
+func TestTarballVersionAsksS3(t *testing.T) {
+	log := stubTool(t, "aws", "v-0123456789abcdef")
+	v, err := tarballVersion(nil, "s3://bucket/tarballs/interviews.tar.gz")
+	if err != nil || v != "v-0123456789abcdef" {
+		t.Fatalf("tarballVersion = %q, %v", v, err)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"s3api head-object", "--bucket bucket", "--key tarballs/interviews.tar.gz"} {
+		if !strings.Contains(string(calls), want) {
+			t.Errorf("aws call missing %q: %s", want, calls)
+		}
+	}
+
+	if _, err := tarballVersion(nil, "https://bucket/key"); err == nil {
+		t.Error("a non-s3 uri was accepted")
+	}
+}
+
+// An unversioned bucket answers "None", which is nothing worth recording.
+func TestTarballVersionOnAnUnversionedBucket(t *testing.T) {
+	stubTool(t, "aws", "None")
+	v, err := tarballVersion(nil, "s3://bucket/tarballs/interviews.tar.gz")
+	if err != nil || v != "" {
+		t.Fatalf("tarballVersion = %q, %v; want empty for None", v, err)
+	}
+}
+
 // end leaves nothing per seed behind: each data dir carries its own full
 // copy of the AWS provider (3.2 GB across five seeds), and init must not
 // rewrite the module directory's tracked lockfile while it is at it.

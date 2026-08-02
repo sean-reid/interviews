@@ -452,7 +452,8 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 	}
 	rows = append(rows,
 		[2]string{"workdir", rec.Workdir},
-		[2]string{"evidence", rec.Evidence})
+		[2]string{"evidence", rec.Evidence},
+		[2]string{"content version", rec.ContentVersion})
 	if rec.TerraformDir != "" {
 		rows = append(rows, [2]string{"terraform", rec.TerraformDir})
 	}

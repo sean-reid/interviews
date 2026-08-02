@@ -40,7 +40,10 @@ Run this as an account administrator rather than as the user it creates. The pol
 
 ```sh
 account=$(aws sts get-caller-identity --query Account --output text)
-sed -e "s/ACCOUNT_ID/$account/g" -e "s/REGION/eu-west-1/g" -e "s/BUCKET/my-interview-evidence/g" -e "s/STATE_BUCKET/my-interview-tfstate/g" infra/aws/terraform-policy.json >/tmp/iv-terraform-policy.json
+# STATE_BUCKET before BUCKET: the second is a substring of the first, and
+# the other order rewrites it to STATE_my-interview-evidence in silence.
+sed -e "s/STATE_BUCKET/my-interview-tfstate/g" -e "s/ACCOUNT_ID/$account/g" -e "s/REGION/eu-west-1/g" -e "s/BUCKET/my-interview-evidence/g" infra/aws/terraform-policy.json >/tmp/iv-terraform-policy.json
+grep -q 'ACCOUNT_ID\|REGION\|BUCKET' /tmp/iv-terraform-policy.json && echo "a placeholder did not get replaced"
 
 aws iam create-user --user-name interviews-terraform
 aws iam put-user-policy --user-name interviews-terraform   --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
@@ -71,9 +74,17 @@ policy on the user are separate things, and a stale attachment is invisible
 until something is denied:
 
 ```sh
+aws iam list-user-policies --user-name interviews-terraform
 aws iam put-user-policy --user-name interviews-terraform \
   --policy-name interviews-terraform --policy-document file:///tmp/iv-terraform-policy.json
 ```
+
+List first and reuse the name that is already there. `put-user-policy` writes
+the name you give it, so a new name leaves the old policy attached beside the
+new one, and inline policies are a union: a grant this file dropped, such as
+the `s3:*` that used to sit on the evidence bucket, would still be in force
+and nothing would say so. Both commands need an administrator, since this
+user is denied IAM over itself on purpose.
 
 The policy has been run end to end against a real account: it creates the
 bucket, provisions a host with its role and instance profile, and destroys all

@@ -198,6 +198,24 @@
         "s3:DeleteObject"
       ],
       "Resource": "arn:aws:s3:::BUCKET/*"
+    },
+    {
+      "Sid": "AccountStateBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::STATE_BUCKET"
+    },
+    {
+      "Sid": "AccountStateObject",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::STATE_BUCKET/*"
     }
   ]
 }

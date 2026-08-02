@@ -125,6 +125,8 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 		return 1
 	}
 
+	rec.ProvisionedAt = time.Now()
+
 	out, err := outputs(env, dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews start: reading terraform outputs: %v\n", err)

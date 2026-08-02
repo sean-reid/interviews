@@ -520,7 +520,13 @@ func sessionStatus(s *interview.Session) (string, int) {
 			return "provisioning", rankLive
 		}
 		if s.TTLMinutes > 0 {
-			left := time.Until(s.CreatedAt.Add(time.Duration(s.TTLMinutes) * time.Minute))
+			// The host's own timer starts at boot, not when the record was
+			// created before terraform ran.
+			from := s.CreatedAt
+			if !s.ProvisionedAt.IsZero() {
+				from = s.ProvisionedAt
+			}
+			left := time.Until(from.Add(time.Duration(s.TTLMinutes) * time.Minute))
 			if left <= 0 {
 				// Sorted first because it is the only state that bills by the
 				// hour until someone runs end.

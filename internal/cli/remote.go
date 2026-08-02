@@ -165,7 +165,7 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 // endRemote pulls the evidence before destroying anything, then tears the
 // host down. Order matters: the bucket outlives the host, but a destroy that
 // runs first removes the only reason to have provisioned it.
-func endRemote(rec *interview.Session, stdout, stderr io.Writer) int {
+func endRemote(rec *interview.Session, purge bool, stdout, stderr io.Writer) int {
 	cfg := interview.LoadConfig()
 	profile := ""
 	if cfg.AWS != nil {
@@ -182,7 +182,20 @@ func endRemote(rec *interview.Session, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if rec.Evidence != "" {
+	if purge && rec.Evidence != "" {
+		// Purging means the evidence is not wanted, so pulling it first and
+		// deleting the bucket copy after would be the worst of both. This
+		// used to be dropped silently: end --purge on a provisioned session
+		// reported success while the bucket kept everything.
+		fmt.Fprintf(stdout, "deleting the evidence at %s\n", rec.Evidence)
+		if err := runBounded(stdout, stderr, env, "", syncTimeout,
+			"aws", "s3", "rm", rec.Evidence, "--recursive"); err != nil {
+			fmt.Fprintf(stderr, "interviews end: could not delete the evidence: %v\n", err)
+		} else {
+			rec.Evidence = ""
+		}
+	}
+	if !purge && rec.Evidence != "" {
 		local := filepath.Join(os.TempDir(), "interviews-evidence-"+rec.Seed)
 		if err := os.MkdirAll(local, 0o700); err != nil {
 			fmt.Fprintf(stderr, "interviews end: %v\n", err)

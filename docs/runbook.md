@@ -134,39 +134,28 @@ A candidate on the host inherits that and no more.
 
 ## One-time setup
 
-Create the evidence bucket, then build and upload the platform tarball
-(the tarball root holds the linux binary as `interviews`, plus `content/`
-and `session/host/`):
+`interviews setup aws` creates the evidence bucket, then builds and uploads
+the bundle a host downloads at boot: the linux binary, the content tree, and
+the host scripts.
 
 ```sh
-cd infra/aws/account
-terraform apply -var region=eu-west-1 -var bucket=my-interview-evidence
-
-GOOS=linux GOARCH=amd64 go build -o interviews ./cmd/interviews
-tar czf interviews.tar.gz interviews content session/host
-aws s3 cp interviews.tar.gz s3://my-interview-evidence/tarballs/interviews.tar.gz
+interviews setup aws --region eu-west-1 --bucket my-interview-evidence
 ```
+
+Re-run it after a platform release or a content change; `--skip-bucket`
+leaves the bucket alone and only refreshes the bundle.
 
 ## Provision a session
 
 ```sh
-cd infra/aws/interview
-terraform apply \
-  -var region=eu-west-1 \
-  -var problem=<problem> \
-  -var seed=calm-bison-0731 \
-  -var evidence_bucket=my-interview-evidence \
-  -var repo_tarball_s3_uri=s3://my-interview-evidence/tarballs/interviews.tar.gz
+interviews start <problem> --remote
 ```
 
-Watch boot until `curl https://$(terraform output -raw public_ip).sslip.io/healthz`
-returns ok and the observer URL shows a shell prompt; environment build takes
-a few minutes. The URLs are sensitive outputs:
-
-```sh
-terraform output -raw observer_url
-terraform output -raw candidate_url
-```
+It provisions the host, watches boot until the environment is built, and
+prints the candidate, observer, and app URLs; `interviews sessions show`
+reprints them later, and `interviews sessions log --follow` shows what the
+host said as it booted. `--ttl` moves the self-destruct from its 120 minute
+default.
 
 ## During
 
@@ -175,22 +164,23 @@ the candidate URL at start time, not before; the recording and the TTL clock
 run from boot.
 
 Log hints as you give them, from your own machine. The host has no key pair,
-no port 22, and no SSM, so there is no shell on it to log from. Run this from
-a checkout of this repository, once per hint, keeping the same workdir for
-the whole session:
+no port 22, and no SSM, so there is no shell on it to log from. On the
+machine that ran `start`:
 
 ```sh
-interviews grade hint <problem> "asked what the health endpoint returns" \
-  --seed calm-bison-0731 --minute 9 --workdir ~/interviews/calm-bison-0731
+interviews hint "asked what the health endpoint returns" --minute 9
 ```
+
+From any other machine, `interviews grade hint <problem> "..." --minute 9
+--seed calm-bison-0731` logs against the seed instead.
 
 ## The app route
 
-On a problem that declares an app, `terraform output -raw app_url` is a third
-token route, shared by candidate and observer because it serves the same broken
-app to both. Expect it to fail for much of the session: that is the app being
-broken, not the host. Caddy's `/healthz` does not touch it, so the TTL watchdog
-keeps working while the app is down.
+On a problem that declares an app, `start` prints a third token route,
+shared by candidate and observer because it serves the same broken app to
+both. Expect it to fail for much of the session: that is the app being
+broken, not the host. Caddy's `/healthz` does not touch it, so the health
+endpoint stays green while the app is down.
 
 ## The two accounts
 
@@ -209,19 +199,24 @@ cannot write to or signal, which is what makes it evidence.
 Evidence syncs to `s3://<bucket>/<seed>/evidence.tar.gz` every two minutes:
 the recording, the fault timeline, and the score. On a host the candidate
 owns the terminal, so there is no separate raw log and the recording is the
-transcript. Pull the bundle and grade, pointing `--hints` at the ledger you
-kept during the session:
+transcript. End the session from the machine that started it:
 
 ```sh
-aws s3 cp "$(terraform output -raw evidence_path)evidence.tar.gz" .
-mkdir evidence && tar xzf evidence.tar.gz -C evidence
-interviews grade sheet <problem> --seed calm-bison-0731 \
-  --workdir evidence --hints ~/interviews/calm-bison-0731 -o sheet.md
+interviews end calm-bison-0731
 ```
 
-Tear down with `terraform destroy`. If you forget, the host powers off at
-the TTL (default 120 minutes) and terminates itself; the EIP and security
-group still want the destroy.
+It pulls the evidence down, destroys the host, and prints where the local
+copy landed; the bucket keeps the synced original. Then grade, pointing
+`--workdir` at the pulled evidence; hints logged with `interviews hint` are
+merged in by seed on their own:
+
+```sh
+interviews grade sheet <problem> --seed calm-bison-0731 --workdir <evidence dir> -o sheet.md
+```
+
+If you forget to end, the host powers off at the TTL (default 120 minutes)
+and terminates itself; `end` still wants running for the EIP and security
+group.
 
 ## The backstop
 

@@ -93,10 +93,10 @@ func TestSessionKubeconfigRequiresState(t *testing.T) {
 // either side would otherwise only surface on a provisioned box. Every
 // session command the unit runs has to parse here, with the placeholders
 // systemd fills in and the content root pointed at the fixtures.
-func TestHostUnitSessionFlagsParse(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "session", "host", "iv-session.service"))
-	if err != nil {
-		t.Fatal(err)
+func TestHostUnitCommandsParse(t *testing.T) {
+	units, err := filepath.Glob(filepath.Join("..", "..", "session", "host", "iv-*"))
+	if err != nil || len(units) == 0 {
+		t.Fatalf("no unit files: %v", err)
 	}
 	subs := strings.NewReplacer(
 		"${IV_PROBLEM}", "pipeline-meltdown",
@@ -104,26 +104,58 @@ func TestHostUnitSessionFlagsParse(t *testing.T) {
 		"${IV_HOSTNAME}", "1.2.3.4.sslip.io",
 		"${IV_CANDIDATE_TOKEN}", strings.Repeat("a", 32),
 		"${IV_OBSERVER_TOKEN}", strings.Repeat("b", 32),
-		"/opt/interviews/content", goodRoot,
+		"${IV_APP_TOKEN}", strings.Repeat("c", 32),
+		"${IV_EVIDENCE_S3}", "s3://bucket/test-seed/",
+		// A content root that does not exist: every command parses flags
+		// before it touches the registry, so the expected exit 1 stays
+		// distinguishable from a parse failure, and env up run from a test
+		// cannot build a real environment.
+		"/opt/interviews/content", filepath.Join(t.TempDir(), "no-content"),
 	)
 	found := 0
-	for _, line := range strings.Split(string(raw), "\n") {
-		cmd, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
-		if !ok {
-			continue
+	for _, unit := range units {
+		raw, err := os.ReadFile(unit)
+		if err != nil {
+			t.Fatal(err)
 		}
-		fields := strings.Fields(subs.Replace(strings.TrimPrefix(cmd, "-")))
-		if len(fields) < 2 || fields[1] != "session" {
-			continue
-		}
-		found++
-		args := append(fields[1:], "--workdir", t.TempDir())
-		code, _, stderr := run(t, args...)
-		if code == 2 || strings.Contains(stderr, "not defined") {
-			t.Errorf("%v: exit %d, stderr %q", args, code, stderr)
+		for _, line := range strings.Split(string(raw), "\n") {
+			cmd, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+			if !ok {
+				continue
+			}
+			fields := strings.Fields(subs.Replace(strings.TrimPrefix(cmd, "-")))
+			// The ttl unit arms systemd-run through sh; only this binary's
+			// own invocations have a flag set to hold them to.
+			if len(fields) == 0 || !strings.HasSuffix(fields[0], "/interviews") {
+				continue
+			}
+			found++
+			args := fields[1:]
+			code, _, stderr := run(t, args...)
+			if code == 2 || strings.Contains(stderr, "not defined") {
+				t.Errorf("%s: %v: exit %d, stderr %q", filepath.Base(unit), args, code, stderr)
+			}
 		}
 	}
-	if found != 2 {
-		t.Errorf("session commands in the unit = %d, want 2", found)
+	// Every interviews invocation across the units, so a new ExecStart
+	// cannot land unparsed: renaming session evidence's --s3 kept the whole
+	// suite green while every sync on a live host would have exited 2.
+	if found != 6 {
+		t.Errorf("interviews commands across the units = %d, want 6", found)
+	}
+}
+
+// session start spawns the proxy from an argv another package builds, and
+// asserting that string as a substring cannot catch a renamed flag. Parse
+// the shared argv through the real flag set; the impossible port makes it
+// exit 1 after the parse instead of listening.
+func TestProxyCommandParses(t *testing.T) {
+	args := session.ProxyArgs(99999)
+	code, _, stderr := run(t, args...)
+	if code == 2 || strings.Contains(stderr, "not defined") {
+		t.Errorf("%v: exit %d, stderr %q", args, code, stderr)
+	}
+	if code != 1 {
+		t.Errorf("%v: exit %d, want 1 from the port validation", args, code)
 	}
 }

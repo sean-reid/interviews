@@ -29,7 +29,7 @@ func cmdDescribe(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs_.Bool("json", false, "machine-readable output")
 	positional, err := parsePermuted(fs_, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(positional) != 1 {
 		fmt.Fprintln(stderr, "usage: interviews describe <problem-id> [--seed id] [--set k=v] [--json]")

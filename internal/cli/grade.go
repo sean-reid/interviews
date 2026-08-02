@@ -28,6 +28,9 @@ func cmdGrade(args []string, stdout, stderr io.Writer) int {
 		return gradeScore(args[1:], stdout, stderr)
 	case "hint":
 		return gradeHint(args[1:], stdout, stderr)
+	case "--help", "-h":
+		printUsage("grade", stderr)
+		return 0
 	default:
 		return usageErr("grade", stderr)
 	}
@@ -55,7 +58,7 @@ func gradeSheet(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		return usageErr("grade sheet", stderr)
@@ -148,9 +151,9 @@ func loadRubric(path string) (*grading.Rubric, error) {
 }
 
 func gradeScore(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, workdir, sets, pos, ok := debugFlags("grade score", args, stderr)
-	if !ok {
-		return 2
+	contentRoot, seed, workdir, sets, pos, ferr := debugFlags("grade score", args, stderr)
+	if ferr != nil {
+		return parseExit(ferr)
 	}
 	if len(pos) != 1 {
 		return usageErr("grade score", stderr)
@@ -183,7 +186,7 @@ func gradeHint(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 2 || *minute == "" {
 		return usageErr("grade hint", stderr)

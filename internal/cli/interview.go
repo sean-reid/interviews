@@ -38,7 +38,7 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&sets, "set", "pin a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		return usageErr("start", stderr)
@@ -151,7 +151,7 @@ func cmdEnd(args []string, stdout, stderr io.Writer) int {
 	purge := fs.Bool("purge", false, "delete the evidence too")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) > 1 {
 		return usageErr("end", stderr)
@@ -223,7 +223,7 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 	minuteFlag := fs.Int("minute", -1, "override the minute (default: measured from the session start)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 || strings.TrimSpace(pos[0]) == "" {
 		return usageErr("hint", stderr)
@@ -275,8 +275,16 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 	all := fs.Bool("all", false, "include sessions that have ended")
 	waiting := fs.Bool("waiting", false, "only sessions that need something from you")
 	remote := fs.Bool("remote", false, "ask AWS what is running, including hosts other machines started")
-	if _, err := parsePermuted(fs, args); err != nil {
-		return 2
+	pos, err := parsePermuted(fs, args)
+	if err != nil {
+		return parseExit(err)
+	}
+	// A leftover word is a verb that was not dispatched above: a typo, or
+	// show after the flags. Dropping it printed the plain listing with exit
+	// 0, which reads as a legitimate answer.
+	if len(pos) > 0 {
+		fmt.Fprintf(stderr, "interviews sessions: no verb %q\n", pos[0])
+		return usageErr("sessions", stderr)
 	}
 	list, err := interview.List()
 	if err != nil {
@@ -372,7 +380,7 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 	seedFlag := fs.String("seed", "", "session to show (default: the current one)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	seed := *seedFlag
 	if len(pos) == 1 {
@@ -640,7 +648,7 @@ func cmdStage(stage interview.Stage) command {
 		seedFlag := fs.String("seed", "", "session to mark (default: the current one)")
 		pos, err := parsePermuted(fs, args)
 		if err != nil {
-			return 2
+			return parseExit(err)
 		}
 		// returned takes the submission path, since that is what grading reads.
 		wantPath := stage == interview.Returned
@@ -700,7 +708,7 @@ func sessionsLog(args []string, stdout, stderr io.Writer) int {
 	follow := fs.Bool("follow", false, "keep printing as the host says more")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	seed := *seedFlag
 	if len(pos) == 1 {

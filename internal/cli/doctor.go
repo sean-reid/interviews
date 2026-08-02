@@ -67,13 +67,13 @@ var toolGroups = []struct {
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := newBareFlagSet("doctor", stderr)
 	if pos, err := parsePermuted(fs, args); err != nil {
-		return 2
+		return parseExit(err)
 	} else if len(pos) > 0 {
 		return usageErr("doctor", stderr)
 	}
 
 	fmt.Fprintf(stdout, "interviews %s on %s/%s\n\n", version.Version, runtime.GOOS, runtime.GOARCH)
-	contentReport(stdout)
+	contentOK := contentReport(stdout, stderr)
 	var missing []tool
 	broken := false
 	for _, g := range toolGroups {
@@ -104,33 +104,38 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(missing) == 0 {
 		fmt.Fprintln(stdout, "everything the platform shells out to is here")
-		return 0
-	}
-	fmt.Fprintln(stdout, "install what you need:")
-	for _, t := range missing {
-		if t.brew != "" && runtime.GOOS == "darwin" {
-			fmt.Fprintf(stdout, "  brew install %s\n", t.brew)
-			continue
+	} else {
+		fmt.Fprintln(stdout, "install what you need:")
+		for _, t := range missing {
+			if t.brew != "" && runtime.GOOS == "darwin" {
+				fmt.Fprintf(stdout, "  brew install %s\n", t.brew)
+				continue
+			}
+			fmt.Fprintf(stdout, "  %s: %s\n", t.bin, t.site)
 		}
-		fmt.Fprintf(stdout, "  %s: %s\n", t.bin, t.site)
 	}
 	if broken {
 		fmt.Fprintln(stdout, "\nan interview on this machine needs the groups above that are not optional")
+	}
+	if broken || !contentOK {
 		return 1
 	}
 	return 0
 }
 
 // contentReport says where the problems are and whether the checkout is
-// current. Nothing else fetches: doctor is the command you run before a
-// candidate is waiting, so it can afford the round trip.
-func contentReport(stdout io.Writer) {
+// current, and reports whether they load at all. Nothing else fetches:
+// doctor is the command you run before a candidate is waiting, so it can
+// afford the round trip.
+func contentReport(stdout, stderr io.Writer) bool {
 	root, from := interview.ContentRoot()
 	fmt.Fprintf(stdout, "content  %s  (%s)\n", root, from)
 	if _, err := openRegistry(root, false, io.Discard); err != nil {
-		fmt.Fprintf(stdout, "  no problems there: %v\n", err)
-		fmt.Fprintf(stdout, "  interviews config set content <path to the problems checkout>/content\n\n")
-		return
+		// A machine that cannot load its problems cannot run an interview,
+		// so this is a failure, not a remark in the report.
+		fmt.Fprintf(stderr, "  no problems there: %v\n", err)
+		fmt.Fprintf(stderr, "  interviews config set content <path to the problems checkout>/content\n\n")
+		return false
 	}
 	s := contentStatus(root, true)
 	switch {
@@ -147,4 +152,5 @@ func contentReport(stdout io.Writer) {
 		fmt.Fprintf(stdout, "  uncommitted changes under %s\n", root)
 	}
 	fmt.Fprintln(stdout)
+	return true
 }

@@ -571,3 +571,18 @@ func TestHintWorksOnASessionWithNoWorkdir(t *testing.T) {
 		t.Errorf("ledger = %v, want the one hint", hints)
 	}
 }
+
+// A typo used to be collected as a positional and dropped, so "sessions shwo"
+// printed the plain listing and exited 0, which reads as a legitimate answer.
+func TestSessionsRejectsAnUnknownVerb(t *testing.T) {
+	if code, _, stderr := run(t, "sessions", "shwo"); code != 2 ||
+		!strings.Contains(stderr, `no verb "shwo"`) {
+		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+	// The verb only dispatches in first position, so after a flag it was
+	// dropped just the same.
+	if code, _, stderr := run(t, "sessions", "--all", "show"); code != 2 ||
+		!strings.Contains(stderr, `no verb "show"`) {
+		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+}

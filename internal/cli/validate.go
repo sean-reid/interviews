@@ -18,7 +18,7 @@ func cmdValidate(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	positional, perr := parsePermuted(fs, args)
 	if perr != nil {
-		return 2
+		return parseExit(perr)
 	}
 	if len(positional) > 0 {
 		fmt.Fprintf(stderr, "interviews validate: unexpected argument %q\n", positional[0])

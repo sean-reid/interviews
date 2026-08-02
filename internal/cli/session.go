@@ -26,6 +26,9 @@ func cmdSession(args []string, stdout, stderr io.Writer) int {
 		return sessionKubeconfig(args[1:], stdout, stderr)
 	case "proxy":
 		return sessionProxy(args[1:], stdout, stderr)
+	case "--help", "-h":
+		printUsage("session", stderr)
+		return 0
 	default:
 		return usageErr("session", stderr)
 	}
@@ -57,7 +60,7 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 	candKube := fs.String("candidate-kubeconfig", "", "kubeconfig to export in the session environment")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		return usageErr("session start", stderr)
@@ -79,9 +82,9 @@ func sessionStart(args []string, stdout, stderr io.Writer) int {
 }
 
 func sessionStop(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, workdir, sets, pos, ok := debugFlags("session stop", args, stderr)
-	if !ok {
-		return 2
+	contentRoot, seed, workdir, sets, pos, ferr := debugFlags("session stop", args, stderr)
+	if ferr != nil {
+		return parseExit(ferr)
 	}
 	if len(pos) != 1 {
 		return usageErr("session stop", stderr)
@@ -108,7 +111,7 @@ func sessionEvidence(args []string, stdout, stderr io.Writer) int {
 	s3 := fs.String("s3", "", "upload the bundle under this s3://bucket/prefix")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		return usageErr("session evidence", stderr)
@@ -136,7 +139,7 @@ func sessionTimeline(args []string, stdout, stderr io.Writer) int {
 	forDur := fs.Duration("for", 0, "keep sampling for this long")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 || *once == (*forDur > 0) {
 		return usageErr("session timeline", stderr)
@@ -168,7 +171,7 @@ func sessionKubeconfig(args []string, stdout, stderr io.Writer) int {
 	out := fs.String("out", "", "also write the kubeconfig here for the candidate's account to read")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		return usageErr("session kubeconfig", stderr)
@@ -203,7 +206,7 @@ func sessionProxy(args []string, stdout, stderr io.Writer) int {
 	to := fs.Int("to", 0, "loopback port to forward to")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 0 || *to == 0 {
 		return usageErr("session proxy", stderr)

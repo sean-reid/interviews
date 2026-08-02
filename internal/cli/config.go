@@ -21,7 +21,8 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 	case "unset":
 		return configUnset(args[1:], stdout, stderr)
 	case "--help", "-h":
-		return usageErr("config", stderr)
+		printUsage("config", stderr)
+		return 0
 	default:
 		fmt.Fprintf(stderr, "interviews config: no verb %q\n", args[0])
 		return usageErr("config", stderr)

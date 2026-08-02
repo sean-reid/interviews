@@ -303,11 +303,11 @@ func TestLookalikeInterviewerDirsAreProtected(t *testing.T) {
 		t.Fatal("an ordinary candidate path reads as protected; this test proves nothing")
 	}
 	for _, name := range []string{
-		"candidate/İnterviewer/key.md",  // dotted capital I
-		"candidate/intеrviewer/key.md",  // cyrillic e
-		"candidate/ｉnterviewer/key.md",  // fullwidth i
-		"candidate/interviewer​/key.md", // trailing zero width space
-		"candidate/fаults/01/notes.md",  // cyrillic a in faults
+		"candidate/İnterviewer/key.md",       // dotted capital I
+		"candidate/intеrviewer/key.md",       // cyrillic e
+		"candidate/ｉnterviewer/key.md",       // fullwidth i
+		"candidate/interviewer\u200b/key.md", // trailing zero width space
+		"candidate/fаults/01/notes.md",       // cyrillic a in faults
 	} {
 		if !Protected(name) {
 			t.Errorf("%q is publishable, so an answer key under it ships", name)

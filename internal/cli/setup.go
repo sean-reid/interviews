@@ -84,7 +84,7 @@ func setupAWS(args []string, stdout, stderr io.Writer) int {
 
 	if !*skipBucket {
 		acct := filepath.Join(root, "account")
-		if err := runIn(stdout, stderr, env, acct, "terraform", "init", "-input=false"); err != nil {
+		if err := runBounded(stdout, stderr, env, acct, initTimeout, "terraform", "init", "-input=false"); err != nil {
 			fmt.Fprintf(stderr, "interviews setup aws: %v\n", err)
 			return 1
 		}
@@ -116,7 +116,7 @@ func setupAWS(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "bundle unchanged since %s, not re-uploading\n",
 			prev.UploadedAt.Format(time.RFC1123))
 	} else {
-		if err := runIn(stdout, stderr, env, "", "aws", "s3", "cp", tarball, uri, "--region", *region); err != nil {
+		if err := runBounded(stdout, stderr, env, "", syncTimeout, "aws", "s3", "cp", tarball, uri, "--region", *region); err != nil {
 			fmt.Fprintf(stderr, "interviews setup aws: %v\n", err)
 			return 1
 		}
@@ -179,30 +179,59 @@ func callerIdentity(env []string) (string, error) {
 // enough that a permission problem is reported rather than waited on.
 const bucketTimeout = 90 * time.Second
 
-// runBounded is runIn with a deadline, so a provider retry loop cannot hold
-// the command open indefinitely.
+// unlockGrace is how long a bounded command gets after its interrupt to shut
+// down cleanly. Terraform uses it to release the state lock; anything still
+// running when it elapses is killed by the standard library.
+const unlockGrace = 30 * time.Second
+
+// syncTimeout caps pulling an interview's evidence out of the bucket. It runs
+// before the destroy in end, so hanging here leaves the host up.
+const syncTimeout = 5 * time.Minute
+
+// initTimeout caps a terraform init. It reaches the network for providers and
+// the backend, and start --remote runs it with a candidate waiting.
+const initTimeout = 3 * time.Minute
+
+// runBounded runs a command with a deadline, so a provider retry loop or an
+// unreachable endpoint cannot hold it open indefinitely. Everything here
+// reaches the network, so nothing runs unbounded.
+// boundedCmd builds the command runBounded runs.
+//
+// Ask, then kill. Terraform releases its state lock on an interrupt and not
+// on a kill, and a kill is what exec.CommandContext does by default: a
+// destroy that ran past its bound left a lock in the bucket that blocked
+// every later end, from any machine, while the host kept billing. WaitDelay
+// is the backstop for a process that ignores the signal, so the bound still
+// means something.
+func boundedCmd(ctx context.Context, stdout, stderr io.Writer, env []string, dir, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, stdout, stderr
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = unlockGrace
+	return cmd
+}
+
 func runBounded(stdout, stderr io.Writer, env []string, dir string, limit time.Duration, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, stdout, stderr
+	cmd := boundedCmd(ctx, stdout, stderr, env, dir, name, args...)
 	err := cmd.Run()
+	// args can be empty, so name the command without indexing into it.
+	what := strings.TrimSpace(name + " " + firstArg(args))
 	if ctx.Err() != nil {
-		return fmt.Errorf("%s %s gave up after %s", name, args[0], limit)
+		return fmt.Errorf("%s gave up after %s", what, limit)
 	}
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", name, args[0], err)
+		return fmt.Errorf("%s: %w", what, err)
 	}
 	return nil
 }
 
-func runIn(stdout, stderr io.Writer, env []string, dir string, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, stdout, stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %s: %w", name, args[0], err)
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
 	}
-	return nil
+	return args[0]
 }
 
 // packBundle writes the tarball a host unpacks: the linux binary at the

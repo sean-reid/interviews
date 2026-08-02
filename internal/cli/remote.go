@@ -189,7 +189,7 @@ func endRemote(rec *interview.Session, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintf(stdout, "pulling evidence from %s\n", rec.Evidence)
-		if err := runIn(stdout, stderr, env, "", "aws", "s3", "sync", rec.Evidence, local); err != nil {
+		if err := runBounded(stdout, stderr, env, "", syncTimeout, "aws", "s3", "sync", rec.Evidence, local); err != nil {
 			// Reported, not fatal: the host is still costing money and the
 			// bucket keeps whatever synced, so teardown carries on.
 			fmt.Fprintf(stderr, "interviews end: could not pull the evidence: %v\n", err)
@@ -214,6 +214,9 @@ func endRemote(rec *interview.Session, stdout, stderr io.Writer) int {
 		"-var", "repo_tarball_s3_uri="+tarballOf(cfg)); err != nil {
 		fmt.Fprintf(stderr, "interviews end: %v\n", err)
 		fmt.Fprintf(stderr, "\nthe host may still be running and still costing money. Its state is at\ns3://%s/%s, so this is retryable from anywhere.\n", bucketOf(cfg), StateKey(rec.Seed))
+		// A lock outliving the process that took it is the one failure here
+		// that retrying cannot clear, and nothing else says how to get out.
+		fmt.Fprintf(stderr, "\nIf it says the state is locked and no other end is running, take the ID\nfrom that message and clear it:\n  terraform -chdir=%s force-unlock <id>\n", rec.TerraformDir)
 		return 1
 	}
 	rec.EndedAt = time.Now()
@@ -254,7 +257,7 @@ func tarballOf(c *interview.Config) string {
 // rather than migrate: the module directory is shared between sessions, and
 // each init is switching to a different interview's state, not moving one.
 func initBackend(stdout, stderr io.Writer, env []string, dir string, a *interview.AWSSetup, seed string) error {
-	return runIn(stdout, stderr, env, dir, "terraform", "init", "-input=false", "-reconfigure",
+	return runBounded(stdout, stderr, env, dir, initTimeout, "terraform", "init", "-input=false", "-reconfigure",
 		"-backend-config=bucket="+a.Bucket,
 		"-backend-config=key="+StateKey(seed),
 		"-backend-config=region="+a.Region,

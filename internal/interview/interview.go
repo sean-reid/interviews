@@ -132,6 +132,22 @@ func HintsDir(seed string) (string, error) {
 	return filepath.Join(home, "hints", seed), nil
 }
 
+// BundleDir is where a candidate drop lands when the interviewer did not
+// say. Starting an offline interview must not stop to ask for a path, and a
+// directory in whatever tree the shell happens to be in is worse than one
+// beside the record that names it. Keyed by seed, so the next drop cannot
+// land on the last one.
+func BundleDir(seed string) (string, error) {
+	home, err := Home()
+	if err != nil {
+		return "", err
+	}
+	if err := ValidSeed(seed); err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "bundles", seed), nil
+}
+
 func sessionsDir() (string, error) {
 	home, err := Home()
 	if err != nil {

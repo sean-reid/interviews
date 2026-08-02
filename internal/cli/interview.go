@@ -17,13 +17,17 @@ import (
 	"github.com/sean-reid/interviews/internal/debug"
 	"github.com/sean-reid/interviews/internal/grading"
 	"github.com/sean-reid/interviews/internal/interview"
+	"github.com/sean-reid/interviews/internal/registry"
 	"github.com/sean-reid/interviews/internal/session"
 	"github.com/sean-reid/interviews/internal/taxonomy"
 )
 
-// cmdStart brings up everything one debugging interview needs and records
-// it. The sequence it replaces is four commands, each repeating a seed the
-// interviewer had to invent and keep.
+// cmdStart begins one interview of whatever kind the problem is: an
+// environment for a debugging problem, the candidate's drop and the session
+// behind it for a take-home or a design exercise. It is one verb because
+// which command a type wants is not worth remembering with a candidate
+// waiting. The sequence it replaces is four commands, each repeating a seed
+// the interviewer had to invent and keep.
 func cmdStart(args []string, stdout, stderr io.Writer) int {
 	fs, contentRoot := newFlagSet("start", stderr)
 	seedFlag := fs.String("seed", "", "use this interview id instead of generating one")
@@ -34,6 +38,8 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	instanceType := fs.String("instance-type", "", "EC2 instance type (default: the module's)")
 	infra := fs.String("infra", "", "path to the terraform modules")
 	baseURL := fs.String("base-url", "", "public base URL fronting the session ports")
+	outPath := fs.String("o", "", "offline types: where the bundle lands, a directory or a .tar.gz (default: under the registry)")
+	dueFlag := fs.Duration("due", 0, "offline types: how long the candidate has, recorded with the session")
 	var sets repeatedFlag
 	fs.Var(&sets, "set", "pin a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
@@ -47,18 +53,10 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 
 	// Silently ignoring these ran a local session while the flags described a
 	// host: a --ttl the interviewer set and nothing honoured.
-	if !*remote {
-		var remoteOnly []string
-		for _, name := range []string{"ttl", "instance-type", "infra"} {
-			if passed(fs, name) {
-				remoteOnly = append(remoteOnly, "--"+name)
-			}
-		}
-		if len(remoteOnly) > 0 {
-			fmt.Fprintf(stderr, "interviews start: %s only means something with --remote\n",
-				strings.Join(remoteOnly, ", "))
-			return 2
-		}
+	if given := flagsPassed(fs, "ttl", "instance-type", "infra"); !*remote && len(given) > 0 {
+		fmt.Fprintf(stderr, "interviews start: %s only means something with --remote\n",
+			strings.Join(given, ", "))
+		return 2
 	}
 
 	level, err := parseLevel(*levelFlag)
@@ -66,15 +64,10 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 2
 	}
-	seed := *seedFlag
-	if seed == "" {
-		if seed, err = interview.NewSeed(time.Now()); err != nil {
-			fmt.Fprintf(stderr, "interviews start: %v\n", err)
-			return 1
-		}
-	} else if err := interview.ValidSeed(seed); err != nil {
+	seed, code, err := seedOrNew(*seedFlag)
+	if err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
-		return 2
+		return code
 	}
 
 	// Interviewing against last month's problems is a silent failure, and the
@@ -82,26 +75,56 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	// command that runs with a candidate waiting.
 	warnStale(*contentRoot, stderr)
 
+	// The type decides what start does, so it is resolved before anything is
+	// built or provisioned: an unknown id fails here rather than ten minutes
+	// into a host that then has to be found and destroyed.
+	entry, err := resolveEntry(*contentRoot, problemID, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews start: %v\n", err)
+		return 1
+	}
+	warnLevelUnsupported(entry, problemID, level, stderr)
+
+	if entry.Type != taxonomy.Debugging {
+		// These describe an environment an offline type never gets. Taking
+		// them and doing nothing with them is what --ttl already taught.
+		if given := flagsPassed(fs, "no-break", "remote", "ttl", "instance-type", "infra", "base-url"); len(given) > 0 {
+			fmt.Fprintf(stderr, "interviews start: %s describes a live environment, and %s is a %s problem\n",
+				strings.Join(given, ", "), problemID, entry.Type)
+			return 2
+		}
+		out := *outPath
+		if out == "" {
+			// Somewhere is better than refusing mid-interview, and the seed
+			// keys it so a second drop cannot land on the first one's.
+			if out, err = interview.BundleDir(seed); err != nil {
+				fmt.Fprintf(stderr, "interviews start: %v\n", err)
+				return 1
+			}
+		}
+		return deliver("start", handout{
+			contentRoot: *contentRoot, problemID: problemID, seed: seed,
+			out: out, level: level, due: *dueFlag, sets: sets,
+		}, stdout, stderr)
+	}
+	if given := flagsPassed(fs, "o", "due"); len(given) > 0 {
+		fmt.Fprintf(stderr, "interviews start: %s describes a bundle, and %s is a debugging problem\n",
+			strings.Join(given, ", "), problemID)
+		return 2
+	}
+
 	if *remote {
 		// The host builds its own environment from the bundle, so nothing local
 		// is needed beyond knowing the problem is real.
-		if err := warnLevelUnsupported(*contentRoot, problemID, level, stderr); err != nil {
-			fmt.Fprintf(stderr, "interviews start: %v\n", err)
-			return 1
-		}
 		return startRemote(problemID, seed, level, remoteOptions{
 			TTLMinutes: *ttl, InstanceType: *instanceType, Infra: *infra,
 		}, stdout, stderr)
 	}
 
-	// Build the engine before announcing anything: an unknown problem, a
-	// take-home, or a bad --set has to fail before a cluster exists.
+	// Build the engine before announcing anything: a broken scenario or a bad
+	// --set has to fail before a cluster exists.
 	e, err := engineFor(*contentRoot, problemID, seed, "", sets, stdout, stderr)
 	if err != nil {
-		fmt.Fprintf(stderr, "interviews start: %v\n", err)
-		return 1
-	}
-	if err := warnLevelUnsupported(*contentRoot, problemID, level, stderr); err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
 	}
@@ -630,25 +653,28 @@ func parseLevel(v string) (taxonomy.Level, error) {
 	return l, nil
 }
 
-// warnLevelUnsupported says so when a problem does not claim to grade the
-// level it is being run for. It is a warning, not a refusal: the
-// interviewer knows something the manifest does not.
-func warnLevelUnsupported(contentRoot, problemID string, level taxonomy.Level, stderr io.Writer) error {
-	if level == "" {
-		return nil
-	}
+// resolveEntry looks one problem up in the content tree. start dispatches on
+// what comes back, so it runs before the command has done anything.
+func resolveEntry(contentRoot, problemID string, stderr io.Writer) (*registry.Entry, error) {
 	reg, err := openRegistry(contentRoot, false, stderr)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	entry, ok := reg.Get(problemID)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("no problem %q (try interviews list)", problemID)
 	}
-	if !slices.Contains(entry.Problem.Manifest.Levels, level) {
-		fmt.Fprintf(stderr, "warning: %s grades %v, not %s\n", problemID, entry.Problem.Manifest.Levels, level)
+	return entry, nil
+}
+
+// warnLevelUnsupported says so when a problem does not claim to grade the
+// level it is being run for. It is a warning, not a refusal: the
+// interviewer knows something the manifest does not.
+func warnLevelUnsupported(entry *registry.Entry, problemID string, level taxonomy.Level, stderr io.Writer) {
+	if level == "" || slices.Contains(entry.Problem.Manifest.Levels, level) {
+		return
 	}
-	return nil
+	fmt.Fprintf(stderr, "warning: %s grades %v, not %s\n", problemID, entry.Problem.Manifest.Levels, level)
 }
 
 // offlineState reads the stage, and says what it is waiting on: a list of

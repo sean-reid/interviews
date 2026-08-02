@@ -64,6 +64,12 @@ exactly when grading it later, and no two candidates get a byte-identical proble
 
 ## Running an interview
 
+`start` is the verb for every type: it builds and breaks an environment for a
+debugging problem, and writes the candidate's drop for a take-home or a design
+exercise. Either way it invents the interview id and records the session, and a
+flag that means nothing to the resolved type is a usage error rather than a
+silent no-op.
+
 ### Debugging
 
 Running one is three commands. `start` invents the interview id, builds the
@@ -152,12 +158,13 @@ the variant, a fresh one-commit git history, and a leak gate that fails the whol
 bundle if anything interviewer-only would leave:
 
 ```sh
-interviews bundle <problem> -o bundle-dir --level mid --due 120h
+interviews start <problem> --level mid --due 120h -o bundle-dir
 ```
 
-The interview id is generated and recorded, so there is nothing to keep. Then
-three one-word commands track where it is, because these are the ones that get
-forgotten:
+The interview id is generated and recorded, so there is nothing to keep. Without
+`-o` the drop lands under the registry, keyed by that id, and `start` prints
+where. Then three one-word commands track where it is, because these are the ones
+that get forgotten:
 
 ```sh
 interviews sent                    # handed to the candidate
@@ -168,6 +175,9 @@ interviews reviewed                # the live review is done
 `interviews sessions` then answers which ones are waiting on you, with
 deadlines, and `sessions show` prints the bundle and submission paths weeks
 later. `--seed` still pins a variant, for regenerating an identical drop.
+`interviews bundle <problem> -o <path>` writes that same drop and records the
+same session; it is what authoring and CI use, where the destination is the
+point.
 
 ### System design
 
@@ -181,7 +191,7 @@ The candidate's half is delivered the same way, through the same leak gate. The 
 carries no git history, because the deliverable is a document rather than a repository:
 
 ```sh
-interviews bundle <problem> --seed <id> -o design-dir    # or -o design.tar.gz
+interviews start <problem> --seed <id> -o design-dir    # or -o design.tar.gz
 ```
 
 ## Content

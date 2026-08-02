@@ -355,6 +355,10 @@ func cmdSessions(args []string, stdout, stderr io.Writer) int {
 		switch {
 		case *waiting:
 			fmt.Fprintln(stdout, "nothing is waiting on you")
+		case !*all && len(known) > 0:
+			// "no sessions" here read as the interview never happening, when
+			// the registry holds it and the default filter hides it.
+			fmt.Fprintf(stdout, "no open sessions; %d ended (interviews sessions --all lists them)\n", len(known))
 		default:
 			fmt.Fprintln(stdout, "no sessions (interviews start <problem> begins one)")
 		}

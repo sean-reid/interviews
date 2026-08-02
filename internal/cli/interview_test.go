@@ -383,6 +383,25 @@ func TestStartRefusesRemoteFlagsWithoutRemote(t *testing.T) {
 	}
 }
 
+// A registry holding only ended sessions used to answer "no sessions",
+// which reads as the interview never happening, and --all was mentioned
+// only under a non-empty table.
+func TestSessionsSaysWhenOnlyEndedOnesExist(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	record(t, &interview.Session{Seed: "done-otter-0730", Problem: "relay",
+		CreatedAt: time.Now().Add(-26 * time.Hour), EndedAt: time.Now().Add(-25 * time.Hour)})
+	code, stdout, stderr := run(t, "sessions")
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "no open sessions") || !strings.Contains(stdout, "--all") {
+		t.Errorf("stdout = %q, want it to say the sessions ended and name --all", stdout)
+	}
+	if strings.Contains(stdout, "interviews start") {
+		t.Errorf("stdout = %q, still reads as an empty registry", stdout)
+	}
+}
+
 func TestEndRefusesAnUnknownSession(t *testing.T) {
 	t.Setenv(interview.HomeEnv, t.TempDir())
 	if code, _, stderr := run(t, "end", "--seed", "no-such-session"); code == 0 ||

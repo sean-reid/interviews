@@ -121,7 +121,7 @@ provider: kind                # kind | compose, and it must suit the flavor
 kind:
   manifests: env/manifests    # applied after template rendering
   namespace: toy-{{.app_name}}
-  node_image: ""              # optional pin
+  node_image: ""              # only if the problem needs a Kubernetes of its own
   build:                      # images built from this tree, no registry needed
     - image: my-api
       context: app/api

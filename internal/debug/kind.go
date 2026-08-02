@@ -7,10 +7,27 @@ import (
 	"strings"
 )
 
+// DefaultNodeImage is the Kubernetes a scenario gets when it does not ask
+// for one. Without it the version comes from whichever kind binary is on the
+// machine, so the same problem ran on a laptop and on a provisioned host is
+// not the same problem: kind v0.29 defaults to v1.33.1 and v0.31 to v1.35.0.
+// This is the default of the kind that session/host/provision.sh installs,
+// and the two pins move together. Digest pinned, because the tag is mutable.
+const DefaultNodeImage = "kindest/node:v1.33.1@sha256:050072256b9a903bd914c0b2866828150cb229cea0efe5892e2b644d5dd3b34f"
+
 // kindProvider hosts kubernetes-flavor scenarios in a local kind cluster.
 // Images build locally and load into the cluster; nothing needs a registry.
 type kindProvider struct {
 	e *Engine
+}
+
+// nodeImage is what the cluster runs: the scenario's pin if it has one, since
+// a problem may need a version, and the platform's otherwise.
+func (p *kindProvider) nodeImage() string {
+	if img := p.e.Scenario.Env.Kind.NodeImage; img != "" {
+		return img
+	}
+	return DefaultNodeImage
 }
 
 func (p *kindProvider) Name() string { return "kind" }
@@ -51,10 +68,8 @@ func (p *kindProvider) Up(ctx context.Context) error {
 		return err
 	}
 	if !hasLine(clusters, p.cluster()) {
-		args := []string{"create", "cluster", "--name", p.cluster(), "--kubeconfig", p.kubeconfig(), "--wait", "120s"}
-		if spec.NodeImage != "" {
-			args = append(args, "--image", spec.NodeImage)
-		}
+		args := []string{"create", "cluster", "--name", p.cluster(), "--kubeconfig", p.kubeconfig(),
+			"--wait", "120s", "--image", p.nodeImage()}
 		if err := r.Command(ctx, "kind", args...); err != nil {
 			return err
 		}

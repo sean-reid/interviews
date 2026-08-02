@@ -13,6 +13,10 @@ export DEBIAN_FRONTEND=noninteractive
 # or the network beyond fetching, which is what makes that possible, and it is
 # the phase where a package that does not exist on this release shows up.
 prereqs() {
+  # Moving KIND_VERSION means revisiting DefaultNodeImage in
+  # internal/debug/kind.go. The platform pins the node image so a cluster is
+  # the same Kubernetes here as on a laptop, and that pin is this kind's own
+  # default.
   KIND_VERSION=v0.29.0
   KUBECTL_VERSION=v1.33.2
   TTYD_VERSION=1.7.7

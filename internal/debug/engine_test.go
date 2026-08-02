@@ -165,6 +165,36 @@ func TestUpRendersBuildsAppliesVerifies(t *testing.T) {
 	}
 }
 
+// A cluster built from whatever kind happens to be installed is a different
+// cluster on a laptop than on a provisioned host, and nothing would say so.
+// The Kubernetes version is part of the problem, so it is pinned rather than
+// inherited from a binary.
+func TestClusterPinsTheNodeImage(t *testing.T) {
+	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	if err := e.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.callsMatching("--image "+DefaultNodeImage)) == 0 {
+		t.Errorf("cluster created without the pinned node image: %v", r.calls)
+	}
+	if !strings.Contains(DefaultNodeImage, "@sha256:") {
+		t.Errorf("node image %q is a mutable tag, so it is not a pin", DefaultNodeImage)
+	}
+}
+
+// A problem that needs a particular Kubernetes still says so and wins.
+func TestScenarioNodeImageBeatsTheDefault(t *testing.T) {
+	e, _ := testEngine(t, nil, map[string]string{"fault_pack": "pack-a"})
+	p := &kindProvider{e: e}
+	if got := p.nodeImage(); got != DefaultNodeImage {
+		t.Errorf("nodeImage = %q, want the platform default", got)
+	}
+	e.Scenario.Env.Kind.NodeImage = "kindest/node:v1.30.0"
+	if got := p.nodeImage(); got != "kindest/node:v1.30.0" {
+		t.Errorf("nodeImage = %q, want the scenario's pin", got)
+	}
+}
+
 func TestScriptEnvCarriesVariantAndProvider(t *testing.T) {
 	e, r := testEngine(t, nil, map[string]string{"fault_pack": "pack-b"})
 	if err := e.Verify(context.Background()); err != nil {

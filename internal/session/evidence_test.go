@@ -1,9 +1,15 @@
 package session
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -57,4 +63,78 @@ func TestRedactionLeavesNoCredentialInTheBundle(t *testing.T) {
 // credentialField names the Info fields that are secrets or that embed one.
 func credentialField(name string) bool {
 	return strings.Contains(name, "Token") || strings.Contains(name, "URL")
+}
+
+// The candidate's own directory is the work being assessed. Teardown
+// reported it as evidence worth keeping while the artifact that leaves the
+// machine, and the only thing that survives for grading weeks later, did not
+// carry it: the bundle shipped a flat list of engine files.
+func TestBundleCarriesTheCandidatesWork(t *testing.T) {
+	workdir := t.TempDir()
+	work := filepath.Join(workdir, CandidateDir, "notes")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "theory.md"), []byte("the selector is wrong"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Over the cap, so it is named rather than shipped or silently dropped.
+	big := filepath.Join(workdir, CandidateDir, "dump.log")
+	if err := os.WriteFile(big, make([]byte, candidateFileLimit+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(t.TempDir(), EvidenceFile)
+	if err := bundle(workdir, dest); err != nil {
+		t.Fatal(err)
+	}
+	got := tarNames(t, dest)
+	if !slices.Contains(got, "candidate/notes/theory.md") {
+		t.Errorf("the candidate's work is not in the bundle: %v", got)
+	}
+	if slices.Contains(got, "candidate/dump.log") {
+		t.Error("a file over the cap was shipped anyway")
+	}
+	skipped := tarMember(t, dest, "skipped.txt")
+	if skipped == "" {
+		t.Fatal("a file was left out and the bundle does not say so")
+	}
+	if !strings.Contains(skipped, "candidate/dump.log") {
+		t.Errorf("skipped.txt = %q, want it to name what was left out", skipped)
+	}
+}
+
+// tarMember returns one member's contents from a tar.gz, or "" if absent.
+func tarMember(t *testing.T, path, want string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return ""
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hdr.Name == want {
+			raw, err := io.ReadAll(tr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(raw)
+		}
+	}
 }

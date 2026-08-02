@@ -5,8 +5,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +31,67 @@ type EvidenceOptions struct {
 var evidenceFiles = []string{
 	debug.StateFile, grading.ScoreFile, grading.HintsFile, TimelineFile,
 	InfoFile, CastFile, RawLogFile, ScoreErrorFile,
+}
+
+// candidateFileLimit caps one file from the candidate's directory. The
+// bundle is rebuilt every two minutes for the whole interview and read whole
+// into memory to do it, so one redirected log would be re-read and re-gzipped
+// thirty times. Anything over the cap is named in skipped.txt instead of
+// being dropped quietly, because a bundle that looks complete and is not is
+// worse than one that says what it left out.
+const candidateFileLimit = 4 << 20
+
+// addCandidateWork puts the candidate's own directory in the bundle. It is
+// the work being assessed, and a flat list of engine files could never
+// include it: teardown reported it as evidence worth keeping while the
+// artifact that leaves the machine did not carry it.
+func addCandidateWork(tw *tar.Writer, workdir string) error {
+	root := filepath.Join(workdir, CandidateDir)
+	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	var skipped []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(workdir, path)
+		if err != nil {
+			return err
+		}
+		// Only regular files: a symlink here could name anything on the host,
+		// including the answer keys the candidate cannot otherwise read.
+		if !info.Mode().IsRegular() {
+			skipped = append(skipped, fmt.Sprintf("%s (not a regular file)", rel))
+			return nil
+		}
+		if info.Size() > candidateFileLimit {
+			skipped = append(skipped, fmt.Sprintf("%s (%d bytes, over the %d cap)", rel, info.Size(), candidateFileLimit))
+			return nil
+		}
+		return addFile(tw, workdir, rel)
+	})
+	if err != nil {
+		return err
+	}
+	if len(skipped) == 0 {
+		return nil
+	}
+	return addBytes(tw, "skipped.txt", []byte(strings.Join(skipped, "\n")+"\n"))
+}
+
+// addBytes writes content the workdir does not hold as a file.
+func addBytes(tw *tar.Writer, name string, raw []byte) error {
+	hdr := &tar.Header{Name: name, Mode: 0o600, Size: int64(len(raw)), ModTime: time.Now()}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err := tw.Write(raw)
+	return err
 }
 
 // redacted returns what a file should look like inside the bundle, or nil
@@ -165,7 +228,7 @@ func bundle(workdir, dest string) (err error) {
 			return aerr
 		}
 	}
-	return nil
+	return addCandidateWork(tw, workdir)
 }
 
 func addFile(tw *tar.Writer, workdir, name string) error {

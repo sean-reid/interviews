@@ -43,8 +43,10 @@ func contentStatus(root string, fetch bool) ContentStatus {
 		s.Branch = branch
 	}
 	// Scope the dirty check to the content root, since the rest of the
-	// repository is none of our business.
-	if out, err := git(root, "status", "--porcelain", "--", root); err == nil && out != "" {
+	// repository is none of our business. The pathspec is "." because git
+	// resolves pathspecs after -C has moved into root: passing root again
+	// errors for any relative root, including the ./content default.
+	if out, err := git(root, "status", "--porcelain", "--", "."); err == nil && out != "" {
 		s.Dirty = true
 	}
 	upstream, err := git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")

@@ -134,6 +134,22 @@ func TestContentStatusSeesUncommittedChanges(t *testing.T) {
 	}
 }
 
+// The fallback content root is the relative ./content, and git resolves a
+// pathspec only after -C has moved into the root: passing the root as its
+// own pathspec made git error on every relative one, so a dirty checkout
+// read as clean and the warning never fired.
+func TestContentStatusSeesUncommittedChangesUnderARelativeRoot(t *testing.T) {
+	clone, root := contentClone(t)
+	scratch := filepath.Join(root, "scratch-for-test.txt")
+	if err := os.WriteFile(scratch, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(clone)
+	if s := contentStatus("./examples", false); !s.Dirty {
+		t.Error("a dirty relative root reads as clean")
+	}
+}
+
 // The dirty check is scoped to the content root: what the rest of the
 // repository is doing is none of our business, and warning about it would
 // train the operator to ignore the warning.

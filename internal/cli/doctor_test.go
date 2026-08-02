@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sean-reid/interviews/internal/interview"
 )
 
 // Nothing else lists what the platform shells out to, so the first time an
@@ -30,5 +33,18 @@ func TestDoctorRejectsArguments(t *testing.T) {
 	if code, _, stderr := run(t, "doctor", "everything"); code != 2 ||
 		!strings.Contains(stderr, "usage: interviews doctor") {
 		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+}
+
+// doctor is the pre-interview sanity check, so a machine that cannot load
+// its problems has to fail it, and say so where failures go.
+func TestDoctorFailsOnABrokenContentRoot(t *testing.T) {
+	t.Setenv(interview.ContentEnv, filepath.Join(t.TempDir(), "nowhere"))
+	code, _, stderr := run(t, "doctor")
+	if code != 1 {
+		t.Errorf("exit %d, want 1", code)
+	}
+	if !strings.Contains(stderr, "no problems there") {
+		t.Errorf("stderr says nothing about the content root: %q", stderr)
 	}
 }

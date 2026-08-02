@@ -133,3 +133,21 @@ func TestTopLevelHelpGroupsByAudience(t *testing.T) {
 		t.Error("prove is listed above start, so the menu reads as a sequence to follow")
 	}
 }
+
+// Asking for help is not an error. ErrHelp used to be mapped to the generic
+// parse failure, so every leaf command answered --help and then exited 2.
+func TestHelpFlagExitsZero(t *testing.T) {
+	for _, cmd := range [][]string{
+		{"start"}, {"hint"}, {"end"}, {"sent"}, {"returned"}, {"reviewed"},
+		{"sessions"}, {"list"}, {"describe"}, {"validate"}, {"env"}, {"break"},
+		{"fault"}, {"prove"}, {"session"}, {"grade"}, {"bundle"}, {"redteam"},
+		{"config"}, {"setup"}, {"doctor"},
+		{"sessions", "show"}, {"sessions", "log"}, {"grade", "sheet"},
+		{"session", "start"}, {"setup", "aws"}, {"redteam", "ledger"},
+	} {
+		args := append(append([]string{}, cmd...), "--help")
+		if code, _, stderr := run(t, args...); code != 0 {
+			t.Errorf("%s --help: exit %d, want 0\n%s", strings.Join(cmd, " "), code, stderr)
+		}
+	}
+}

@@ -41,7 +41,7 @@ func engineFor(contentRoot, problemID, seed, workdir string, sets []string, stdo
 }
 
 // debugFlags parses the flags every debugging command shares.
-func debugFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, workdir string, sets []string, positional []string, ok bool) {
+func debugFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, workdir string, sets []string, positional []string, err error) {
 	fs, content := newFlagSet(name, stderr)
 	seedFlag := fs.String("seed", "", "interview id selecting the variant")
 	workdirFlag := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
@@ -49,13 +49,13 @@ func debugFlags(name string, args []string, stderr io.Writer) (contentRoot, seed
 	fs.Var(&setFlags, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return "", "", "", nil, nil, false
+		return "", "", "", nil, nil, err
 	}
-	return *content, *seedFlag, *workdirFlag, setFlags, pos, true
+	return *content, *seedFlag, *workdirFlag, setFlags, pos, nil
 }
 
 // envFlags is debugFlags plus the teardown flag; only env down takes one.
-func envFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, workdir string, sets []string, purge bool, positional []string, ok bool) {
+func envFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, workdir string, sets []string, purge bool, positional []string, err error) {
 	fs, content := newFlagSet(name, stderr)
 	seedFlag := fs.String("seed", "", "interview id selecting the variant")
 	workdirFlag := fs.String("workdir", "", "session state directory (default: per-variant cache dir)")
@@ -64,9 +64,9 @@ func envFlags(name string, args []string, stderr io.Writer) (contentRoot, seed, 
 	fs.Var(&setFlags, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return "", "", "", nil, false, nil, false
+		return "", "", "", nil, false, nil, err
 	}
-	return *content, *seedFlag, *workdirFlag, setFlags, *purgeFlag, pos, true
+	return *content, *seedFlag, *workdirFlag, setFlags, *purgeFlag, pos, nil
 }
 
 // reportTeardown says where the evidence went. Teardown is the last step of
@@ -102,9 +102,9 @@ func reportTeardown(stdout io.Writer, e *debug.Engine, kept []string, purged, ex
 }
 
 func cmdEnv(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, workdir, sets, purge, pos, ok := envFlags("env", args, stderr)
-	if !ok {
-		return 2
+	contentRoot, seed, workdir, sets, purge, pos, ferr := envFlags("env", args, stderr)
+	if ferr != nil {
+		return parseExit(ferr)
 	}
 	if len(pos) != 2 {
 		return usageErr("env", stderr)
@@ -141,9 +141,9 @@ func cmdEnv(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdBreak(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, workdir, sets, pos, ok := debugFlags("break", args, stderr)
-	if !ok {
-		return 2
+	contentRoot, seed, workdir, sets, pos, ferr := debugFlags("break", args, stderr)
+	if ferr != nil {
+		return parseExit(ferr)
 	}
 	if len(pos) != 1 {
 		return usageErr("break", stderr)
@@ -162,9 +162,9 @@ func cmdBreak(args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdFault(args []string, stdout, stderr io.Writer) int {
-	contentRoot, seed, workdir, sets, pos, ok := debugFlags("fault", args, stderr)
-	if !ok {
-		return 2
+	contentRoot, seed, workdir, sets, pos, ferr := debugFlags("fault", args, stderr)
+	if ferr != nil {
+		return parseExit(ferr)
 	}
 	if len(pos) < 2 {
 		return usageErr("fault", stderr)
@@ -232,7 +232,7 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&sets, "set", "pin a parameter for the proven variant (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		return usageErr("prove", stderr)

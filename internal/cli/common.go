@@ -142,11 +142,27 @@ func verbsOf(name string) string {
 	return "\nverbs:\n  " + strings.Join(list, "\n  ")
 }
 
+// printUsage says how to invoke a command; it serves both a usage error and
+// an explicit --help, which differ only in exit code.
+func printUsage(name string, w io.Writer) {
+	fmt.Fprintf(w, "usage: %s\n", synopsis(name))
+	if extra := verbsOf(name); extra != "" {
+		fmt.Fprintln(w, extra)
+	}
+}
+
 // usageErr prints how to invoke a command and returns the usage exit code.
 func usageErr(name string, stderr io.Writer) int {
-	fmt.Fprintf(stderr, "usage: %s\n", synopsis(name))
-	if extra := verbsOf(name); extra != "" {
-		fmt.Fprintln(stderr, extra)
+	printUsage(name, stderr)
+	return 2
+}
+
+// parseExit maps a flag parse failure to an exit code. The flag package has
+// already printed usage when it returns ErrHelp, and an answered --help is
+// not an error, so it must not exit like one.
+func parseExit(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
 	}
 	return 2
 }

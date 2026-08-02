@@ -22,8 +22,12 @@ import (
 const TarballName = "interviews.tar.gz"
 
 func cmdSetup(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 {
 		return usageErr("setup", stderr)
+	}
+	if args[0] == "--help" || args[0] == "-h" {
+		printUsage("setup", stderr)
+		return 0
 	}
 	if args[0] != "aws" {
 		fmt.Fprintf(stderr, "interviews setup: no target %q\n", args[0])
@@ -46,7 +50,7 @@ func setupAWS(args []string, stdout, stderr io.Writer) int {
 	skipBucket := fs_.Bool("skip-bucket", false, "leave the bucket alone and only refresh the tarball")
 	pos, err := parsePermuted(fs_, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 0 || *region == "" || *bucket == "" {
 		return usageErr("setup aws", stderr)

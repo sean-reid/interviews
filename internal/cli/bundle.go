@@ -22,7 +22,7 @@ func cmdBundle(args []string, stdout, stderr io.Writer) int {
 	fs.Var(&sets, "set", "override a parameter (name=value, repeatable)")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 || *outPath == "" {
 		return usageErr("bundle", stderr)

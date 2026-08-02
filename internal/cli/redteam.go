@@ -27,7 +27,7 @@ func cmdRedteam(args []string, stdout, stderr io.Writer) int {
 	packFlag := fs.String("pack", "", "calibrate only this fault pack")
 	pos, err := parsePermuted(fs, args)
 	if err != nil {
-		return 2
+		return parseExit(err)
 	}
 	if len(pos) != 1 {
 		fmt.Fprintln(stderr, usage)
@@ -104,7 +104,7 @@ func redteamLedger(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	staleOnly := fs.Bool("stale", false, "only problems whose latest verdict says rework them")
 	if _, err := parsePermuted(fs, args); err != nil {
-		return 2
+		return parseExit(err)
 	}
 
 	entries, err := redteam.Load(ledgerDir(*contentRoot, *ledgerRoot))

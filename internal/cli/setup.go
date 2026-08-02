@@ -29,11 +29,41 @@ func cmdSetup(args []string, stdout, stderr io.Writer) int {
 		printUsage("setup", stderr)
 		return 0
 	}
-	if args[0] != "aws" {
+	switch args[0] {
+	case "aws":
+		return setupAWS(args[1:], stdout, stderr)
+	case "pack":
+		return setupPack(args[1:], stdout, stderr)
+	default:
 		fmt.Fprintf(stderr, "interviews setup: no target %q\n", args[0])
 		return usageErr("setup", stderr)
 	}
-	return setupAWS(args[1:], stdout, stderr)
+}
+
+// setupPack builds the host bundle to a file and stops before AWS. It is
+// how CI provisions its container from the same tarball a real host
+// unpacks: a hand-rolled test tarball proves a layout nothing ships.
+func setupPack(args []string, stdout, stderr io.Writer) int {
+	fs_, contentRoot := newFlagSet("setup pack", stderr)
+	dest := fs_.String("o", "", "where to write the tarball")
+	infra := fs_.String("infra", "", "path to the terraform modules (default: found from the working directory)")
+	pos, err := parsePermuted(fs_, args)
+	if err != nil {
+		return parseExit(err)
+	}
+	if len(pos) != 0 || *dest == "" {
+		return usageErr("setup pack", stderr)
+	}
+	root, err := infraRoot(*infra)
+	if err != nil {
+		fmt.Fprintf(stderr, "interviews setup pack: %v\n", err)
+		return 1
+	}
+	if _, err := packBundle(stdout, root, *contentRoot, *dest); err != nil {
+		fmt.Fprintf(stderr, "interviews setup pack: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // setupAWS does the one-time cloud preparation: the evidence bucket, and the

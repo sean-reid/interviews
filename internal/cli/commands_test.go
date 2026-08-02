@@ -31,6 +31,36 @@ func TestListTable(t *testing.T) {
 	}
 }
 
+// list is read in an ordinary terminal, and with real content it grew to
+// 149 columns, which stops being a table at all. The title is the elastic
+// column: everything else is identity.
+func TestListStaysInsideTheWidthBudget(t *testing.T) {
+	items := []listItem{
+		{
+			ID: "pipeline-meltdown", Type: "debugging", Flavor: "kubernetes",
+			Levels: []string{"junior", "mid", "senior", "staff"},
+			Title:  strings.Repeat("a title that runs on and on ", 6),
+		},
+		{ID: "slow-aligner", Type: "takehome", Class: "optimization-ladder", Levels: []string{"mid"}, Title: "Short"},
+	}
+	var out strings.Builder
+	if err := renderList(&out, items); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if len(line) > listWidth {
+			t.Errorf("row is %d columns, over the %d budget: %q", len(line), listWidth, line)
+		}
+	}
+	if !strings.Contains(out.String(), "...") {
+		t.Errorf("the long title was not marked as cut:\n%s", out.String())
+	}
+	// A short title is never touched.
+	if !strings.Contains(out.String(), "Short") {
+		t.Errorf("short title mangled:\n%s", out.String())
+	}
+}
+
 func TestListJSONShape(t *testing.T) {
 	code, stdout, stderr := run(t, "list", "--content", goodRoot, "--json")
 	if code != 0 {

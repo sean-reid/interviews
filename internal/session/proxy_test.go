@@ -139,3 +139,13 @@ func TestProxyRefusesOnePort(t *testing.T) {
 		t.Error("proxied a port to itself")
 	}
 }
+
+// A target port outside TCP's range used to print the confirmation and hang
+// forever: nothing dials until a connection arrives, so nothing ever failed.
+func TestProxyRefusesAnImpossiblePort(t *testing.T) {
+	for _, to := range []int{0, -1, 99999} {
+		if err := Proxy(context.Background(), AppPort, to, io.Discard); err == nil {
+			t.Errorf("proxy accepted target port %d", to)
+		}
+	}
+}

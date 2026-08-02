@@ -149,6 +149,7 @@ resource "aws_instance" "session" {
       hostname            = local.hostname
       evidence_bucket     = var.evidence_bucket
       repo_tarball_s3_uri = var.repo_tarball_s3_uri
+      content_version     = var.content_version
     }),
     file("${path.module}/../../../session/host/provision.sh"),
   ])

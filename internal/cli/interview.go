@@ -152,6 +152,7 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "session %s: %s\n", seed, problemID)
 
 	ctx := context.Background()
+	e.Origin = originFor(*contentRoot)
 	if err := e.Up(ctx); err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)
 		return 1
@@ -486,6 +487,15 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 		[2]string{"workdir", rec.Workdir},
 		[2]string{"evidence", rec.Evidence},
 		[2]string{"content version", rec.ContentVersion})
+	// A drop has no environment and no state file, so the record is the only
+	// thing that can say what produced it. Rows with nothing in them are
+	// dropped below, so the content version prints once either way.
+	if p := rec.Provenance; p != nil {
+		rows = append(rows,
+			[2]string{"content version", p.Content},
+			[2]string{"platform version", p.Platform},
+			[2]string{"produced on", string(p.Where)})
+	}
 	if rec.TerraformDir != "" {
 		rows = append(rows, [2]string{"terraform", rec.TerraformDir})
 	}

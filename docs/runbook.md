@@ -236,8 +236,12 @@ every 15 minutes it terminates instances whose `TTLMinutes` tag is more than
 15 minutes past their launch time.
 
 It only touches instances carrying `ManagedBy=interviews`, `Interview` and
-`TTLMinutes`, and its IAM can terminate nothing else. Everything it looked at
-and why is in `/aws/lambda/iv-reaper`:
+`TTLMinutes`, and its IAM can terminate nothing else. It also deletes the
+`iv-` roles and instance profiles the interview module tagged once they are a
+day old with no instance attached: a destroy that dies partway strands them,
+they cost nothing so no bill surfaces them, and instance profiles cap at
+1000 per account. Everything it looked at and why is in
+`/aws/lambda/iv-reaper`:
 
 ```sh
 aws logs tail /aws/lambda/iv-reaper --since 1h

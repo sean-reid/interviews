@@ -21,6 +21,14 @@ variable "reaper_interval_minutes" {
   description = "How often the reaper looks"
 }
 
+variable "reaper_orphan_age_hours" {
+  type        = number
+  default     = 24
+  description = "How old an iv- role or instance profile with no instance must be before the reaper deletes it"
+}
+
+data "aws_caller_identity" "current" {}
+
 data "archive_file" "reaper" {
   type        = "zip"
   source_file = "${path.module}/reaper/handler.py"
@@ -53,6 +61,53 @@ data "aws_iam_policy_document" "reaper" {
     condition {
       test     = "StringEquals"
       variable = "ec2:ResourceTag/ManagedBy"
+      values   = ["interviews"]
+    }
+  }
+
+  # The interview module makes a role and an instance profile per session,
+  # and a destroy that dies partway strands both. They cost nothing, the
+  # terraform identity is deliberately denied ListRoles, and instance
+  # profiles cap at 1000 per account, so the reaper is the only thing that
+  # can ever see or remove them. The list calls cannot be resource-scoped;
+  # everything that inspects or deletes is.
+  statement {
+    sid       = "FindOrphanedSessionRolesAndProfiles"
+    actions   = ["iam:ListRoles", "iam:ListInstanceProfiles"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "InspectOnlyUnderTheIvPrefix"
+    actions = [
+      "iam:ListRoleTags",
+      "iam:ListInstanceProfileTags",
+      "iam:ListRolePolicies",
+      "iam:ListInstanceProfilesForRole",
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/iv-*",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:instance-profile/iv-*",
+    ]
+  }
+
+  # The tag condition is what keeps the reaper's own iv-reaper role, which
+  # this module creates untagged, out of its own reach.
+  statement {
+    sid = "DeleteOnlyTaggedInterviewLeftovers"
+    actions = [
+      "iam:RemoveRoleFromInstanceProfile",
+      "iam:DeleteInstanceProfile",
+      "iam:DeleteRolePolicy",
+      "iam:DeleteRole",
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/iv-*",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:instance-profile/iv-*",
+    ]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/ManagedBy"
       values   = ["interviews"]
     }
   }
@@ -93,7 +148,8 @@ resource "aws_lambda_function" "reaper" {
 
   environment {
     variables = {
-      REAPER_GRACE_MINUTES = tostring(var.reaper_grace_minutes)
+      REAPER_GRACE_MINUTES    = tostring(var.reaper_grace_minutes)
+      REAPER_ORPHAN_AGE_HOURS = tostring(var.reaper_orphan_age_hours)
     }
   }
 

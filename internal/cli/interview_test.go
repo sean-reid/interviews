@@ -361,6 +361,28 @@ func TestStartArgErrors(t *testing.T) {
 	}
 }
 
+// --ttl, --instance-type and --infra describe a provisioned host. Without
+// --remote they were accepted and ignored, so a --ttl the interviewer set
+// bounded nothing.
+func TestStartRefusesRemoteFlagsWithoutRemote(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	for _, flags := range [][]string{
+		{"--ttl", "60"},
+		{"--instance-type", "t3.large"},
+		{"--infra", "infra/aws"},
+	} {
+		args := append([]string{"start", "pipeline-meltdown", "--content", goodRoot}, flags...)
+		code, _, stderr := run(t, args...)
+		if code != 2 || !strings.Contains(stderr, "--remote") {
+			t.Errorf("%v: exit %d, stderr %q, want a usage error naming --remote", flags, code, stderr)
+		}
+	}
+	// Nothing above should have left a record behind.
+	if list, err := interview.List(); err != nil || len(list) != 0 {
+		t.Errorf("refused starts recorded sessions: %v, %v", list, err)
+	}
+}
+
 func TestEndRefusesAnUnknownSession(t *testing.T) {
 	t.Setenv(interview.HomeEnv, t.TempDir())
 	if code, _, stderr := run(t, "end", "--seed", "no-such-session"); code == 0 ||

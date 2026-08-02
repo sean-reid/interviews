@@ -45,6 +45,22 @@ func cmdStart(args []string, stdout, stderr io.Writer) int {
 	}
 	problemID := pos[0]
 
+	// Silently ignoring these ran a local session while the flags described a
+	// host: a --ttl the interviewer set and nothing honoured.
+	if !*remote {
+		var remoteOnly []string
+		for _, name := range []string{"ttl", "instance-type", "infra"} {
+			if passed(fs, name) {
+				remoteOnly = append(remoteOnly, "--"+name)
+			}
+		}
+		if len(remoteOnly) > 0 {
+			fmt.Fprintf(stderr, "interviews start: %s only means something with --remote\n",
+				strings.Join(remoteOnly, ", "))
+			return 2
+		}
+	}
+
 	level, err := parseLevel(*levelFlag)
 	if err != nil {
 		fmt.Fprintf(stderr, "interviews start: %v\n", err)

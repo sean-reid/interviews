@@ -30,6 +30,12 @@ func TestSessionArgErrors(t *testing.T) {
 		"--content", goodRoot, "--seed", "s", "--once", "--for", "1m"); code != 2 {
 		t.Error("timeline with both --once and --for should be a usage error")
 	}
+	// A non-positive interval would fire continuously against the cluster.
+	if code, _, stderr := run(t, "session", "timeline", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "s", "--for", "1m", "--interval", "0"); code != 2 ||
+		!strings.Contains(stderr, "--interval") {
+		t.Errorf("timeline --interval 0: exit %d, stderr %q, want a usage error naming the flag", code, stderr)
+	}
 }
 
 func TestSessionStartRequiresState(t *testing.T) {

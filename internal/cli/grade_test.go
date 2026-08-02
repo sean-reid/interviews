@@ -352,3 +352,32 @@ func TestGradeSheetFindsHintsLoggedAgainstASeed(t *testing.T) {
 		t.Errorf("the sheet does not carry the hint:\n%s", stdout)
 	}
 }
+
+// The seed and the problem were resolved separately and never compared, so
+// naming the wrong problem rendered a full sheet, headed with that problem's
+// title and carrying this session's interview id, and exited 0.
+func TestGradeSheetRefusesAProblemTheSessionIsNotFor(t *testing.T) {
+	t.Setenv(interview.HomeEnv, t.TempDir())
+	evidence := stateFor(t, "01-image-typo")
+	record(t, &interview.Session{
+		Seed: "test-seed", Problem: "pipeline-meltdown", Mode: interview.Local,
+		Workdir: evidence,
+	})
+
+	// Positive control: the right problem still grades.
+	if code, _, stderr := run(t, "grade", "sheet", "pipeline-meltdown",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", evidence); code != 0 {
+		t.Fatalf("the correct problem was refused (%s); this test proves nothing", stderr)
+	}
+
+	code, stdout, stderr := run(t, "grade", "sheet", "global-feed",
+		"--content", goodRoot, "--seed", "test-seed", "--workdir", evidence)
+	if code == 0 {
+		t.Errorf("graded a problem the candidate never saw, exit 0:\n%s", stdout)
+	}
+	for _, want := range []string{"test-seed", "pipeline-meltdown", "global-feed"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to name %q", stderr, want)
+		}
+	}
+}

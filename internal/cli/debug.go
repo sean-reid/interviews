@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/sean-reid/interviews/internal/content"
@@ -254,28 +256,60 @@ func cmdProve(args []string, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	for _, pack := range packs {
+	// The packs share nothing: different cluster names, different workdirs.
+	// Proving them concurrently pays cluster start once in wall time, which
+	// is most of the examples CI job. One pack keeps the caller's writers,
+	// so the authoring loop still watches live; several buffer per pack and
+	// flush in order, so the logs read whole.
+	buffered := len(packs) > 1
+	outs := make([]bytes.Buffer, len(packs))
+	writers := make([]io.Writer, len(packs))
+	errWriters := make([]io.Writer, len(packs))
+	engines := make([]*debug.Engine, len(packs))
+	for i, pack := range packs {
+		writers[i], errWriters[i] = stdout, stderr
+		if buffered {
+			writers[i], errWriters[i] = &outs[i], &outs[i]
+		}
 		e, err := engineFor(*contentRoot, problemID, proveSeed, "",
-			append([]string{debug.PackParam + "=" + pack}, sets...), stdout, stderr)
+			append([]string{debug.PackParam + "=" + pack}, sets...), writers[i], errWriters[i])
 		if err != nil {
 			fmt.Fprintf(stderr, "interviews prove: %v\n", err)
 			return 1
 		}
-		ctx := context.Background()
-		proveErr := e.Prove(ctx)
-		if !*keep {
-			// Purge: an unattended run leaves no evidence worth keeping, and CI
-			// would accumulate a workdir per proven pack.
-			if _, err := e.Down(ctx, true); err != nil {
-				fmt.Fprintf(stderr, "interviews prove: teardown: %v\n", err)
+		engines[i] = e
+	}
+	proveErrs := make([]error, len(packs))
+	var wg sync.WaitGroup
+	for i := range engines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx := context.Background()
+			proveErrs[i] = engines[i].Prove(ctx)
+			if !*keep {
+				// Purge: an unattended run leaves no evidence worth keeping, and CI
+				// would accumulate a workdir per proven pack.
+				if _, err := engines[i].Down(ctx, true); err != nil {
+					fmt.Fprintf(errWriters[i], "interviews prove: teardown: %v\n", err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	code = 0
+	for i := range packs {
+		if buffered {
+			if _, err := io.Copy(stdout, &outs[i]); err != nil {
+				return 1
 			}
 		}
-		if proveErr != nil {
-			fmt.Fprintf(stderr, "interviews prove: %v\n", proveErr)
-			return 1
+		if proveErrs[i] != nil {
+			fmt.Fprintf(stderr, "interviews prove: %v\n", proveErrs[i])
+			code = 1
 		}
 	}
-	return 0
+	return code
 }
 
 func provePacks(contentRoot, problemID, only string, stderr io.Writer) ([]string, int) {

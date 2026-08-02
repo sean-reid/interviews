@@ -24,13 +24,10 @@ type Flavor string
 const (
 	Kubernetes   Flavor = "kubernetes"
 	ComposeLinux Flavor = "compose-linux"
-	Database     Flavor = "database"
-	CICD         Flavor = "ci-cd"
-	AIPipeline   Flavor = "ai-pipeline"
 )
 
 // Flavors lists every debugging flavor in display order.
-var Flavors = []Flavor{Kubernetes, ComposeLinux, Database, CICD, AIPipeline}
+var Flavors = []Flavor{Kubernetes, ComposeLinux}
 
 // Class is the problem class of a take-home challenge.
 type Class string

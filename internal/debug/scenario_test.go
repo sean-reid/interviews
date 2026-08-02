@@ -266,3 +266,14 @@ func TestValidateAppDeclaration(t *testing.T) {
 		}, tc.want)
 	}
 }
+
+// A flavor without a provider validates at the manifest and then fails
+// scenario loading with "want one of []", which reads as a tooling bug
+// rather than an unimplemented feature. Three flavors shipped that way.
+func TestEveryFlavorHasAProvider(t *testing.T) {
+	for _, f := range taxonomy.Flavors {
+		if len(providersByFlavor[f]) == 0 {
+			t.Errorf("flavor %s declares no provider that can host it", f)
+		}
+	}
+}

@@ -39,6 +39,27 @@ jobs:
       - name: shellcheck
         run: shellcheck -S warning session/host/*.sh
 
+  # Nothing else reads infra/. A syntax or type error there merges green and
+  # is found by whoever next runs start --remote, which is the slowest and
+  # most expensive place to find one. An EC2 action that does not exist has
+  # already shipped this way once.
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+      - name: format
+        run: terraform fmt -check -recursive infra
+      - name: validate
+        run: |
+          for mod in infra/aws/*/; do
+            echo "== $mod"
+            # No backend: validate needs no credentials and no state, which is
+            # what lets this run on a pull request from anywhere.
+            terraform -chdir="$mod" init -backend=false -input=false >/dev/null
+            terraform -chdir="$mod" validate
+          done
+
   # shellcheck cannot know whether a package exists on the release the host
   # actually runs, nor whether the script leaves behind what it claims. A
   # container is that release. This runs the whole of provision.sh offline and

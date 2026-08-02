@@ -270,3 +270,20 @@ func TestSaveRefusesAnUnsafeSeed(t *testing.T) {
 		t.Error("wrote outside the registry")
 	}
 }
+
+// A seed becomes a key in the same bucket that holds the shared tarball and
+// every interview's terraform state, and the host's role is scoped to its
+// own seed prefix. So a seed spelling one of those prefixes would hand a
+// candidate's host write access to what every future host executes.
+func TestValidSeedRejectsTheBucketsOwnPrefixes(t *testing.T) {
+	// Positive control: an ordinary seed of the same shape is accepted, so a
+	// rejection below is about the name and not about the check being broken.
+	if err := ValidSeed("state-machine-0801"); err != nil {
+		t.Fatalf("an ordinary seed was rejected (%v); this test proves nothing", err)
+	}
+	for _, seed := range reservedSeeds {
+		if err := ValidSeed(seed); err == nil {
+			t.Errorf("seed %q accepted, and it names a prefix the bucket already uses", seed)
+		}
+	}
+}

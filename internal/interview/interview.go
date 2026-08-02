@@ -283,12 +283,28 @@ func Current() (*Session, error) {
 	}
 }
 
-// ValidSeed rejects anything that would not be safe as a file name or a
-// cluster name. Seeds reach both, and one with a slash in it would write
-// the registry somewhere else entirely.
+// Prefixes the evidence bucket uses for everything that is not one
+// interview. A seed is a key under the same bucket and the host's role is
+// scoped to <bucket>/<seed>/*, so a seed spelling one of these would hand
+// that host write access to shared data: "tarballs" is the bundle every
+// future host downloads and executes, "state" is every interview's
+// terraform state. The CLI builds its keys from these, and a test pins that.
+const (
+	StatePrefix   = "state"
+	TarballPrefix = "tarballs"
+)
+
+var reservedSeeds = []string{StatePrefix, TarballPrefix}
+
+// ValidSeed rejects anything that would not be safe as a file name, a
+// cluster name, or a bucket key. Seeds reach all three, and one with a
+// slash in it would write the registry somewhere else entirely.
 func ValidSeed(seed string) error {
 	if seed == "" {
 		return errors.New("empty seed")
+	}
+	if slices.Contains(reservedSeeds, seed) {
+		return fmt.Errorf("seed %q is reserved: the evidence bucket already keeps %s/ for every interview", seed, seed)
 	}
 	if len(seed) > 64 {
 		return fmt.Errorf("seed %q is longer than 64 characters", seed)

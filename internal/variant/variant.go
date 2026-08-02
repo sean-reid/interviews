@@ -42,7 +42,9 @@ func Resolve(problemID string, specs map[string]content.ParamSpec, interviewID s
 		Params:      make(map[string]any, len(specs)),
 	}
 	if len(overrides) > 0 {
-		r.Overrides = overrides
+		// Cloned so a caller mutating its map later cannot rewrite the
+		// provenance this serializes into the evidence.
+		r.Overrides = maps.Clone(overrides)
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(specs)) {

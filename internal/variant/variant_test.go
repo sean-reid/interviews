@@ -151,6 +151,20 @@ func TestProvenanceSerializes(t *testing.T) {
 	}
 }
 
+// The provenance is a snapshot: a caller mutating its overrides map after
+// Resolve must not rewrite what the evidence says the session ran with.
+func TestResolveSnapshotsTheOverrides(t *testing.T) {
+	overrides := map[string]string{"scale": "5"}
+	r, err := Resolve("p", specs(), "calm-bison", overrides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overrides["scale"] = "9"
+	if got := r.Overrides["scale"]; got != "5" {
+		t.Errorf("Overrides[scale] = %q after the caller mutated its map, want the resolved %q", got, "5")
+	}
+}
+
 func TestRender(t *testing.T) {
 	r, err := Resolve("p", specs(), "i", map[string]string{"scale": "5", "region": "west"})
 	if err != nil {

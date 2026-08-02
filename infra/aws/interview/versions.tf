@@ -22,4 +22,18 @@ terraform {
 
 provider "aws" {
   region = var.region
+
+  # Every resource carries the interview it belongs to, because the session
+  # registry is per machine: a host provisioned from one laptop is invisible
+  # from another, and an apply that dies before writing the record leaves
+  # something nobody can attribute. These tags are what makes the account
+  # itself the index. They stay off the host, which disables metadata tags.
+  default_tags {
+    tags = {
+      ManagedBy  = "interviews"
+      Interview  = var.seed
+      Problem    = var.problem
+      TTLMinutes = tostring(var.ttl_minutes)
+    }
+  }
 }

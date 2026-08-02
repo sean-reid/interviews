@@ -113,6 +113,56 @@
       }
     },
     {
+      "Sid": "ReaperFunctionOnlyUnderTheIvPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:DeleteFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:GetPolicy",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListVersionsByFunction",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:iv-*"
+    },
+    {
+      "Sid": "ReaperScheduleOnlyUnderTheIvPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:REGION:ACCOUNT_ID:rule/iv-*"
+    },
+    {
+      "Sid": "ReaperLogGroupOnlyUnderTheIvPrefix",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:ListTagsForResource",
+        "logs:TagResource",
+        "logs:UntagResource"
+      ],
+      "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/aws/lambda/iv-*"
+    },
+    {
       "Sid": "EvidenceBucketOnlyThisOne",
       "Effect": "Allow",
       "Action": [

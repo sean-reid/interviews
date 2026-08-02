@@ -70,7 +70,7 @@ title: The toy cache does not answer
 summary: One line a candidate sees in a listing.
 disciplines: [systems, infra] # systems, infra, data-eng, ai-ml, comp-bio, physics, stats, signals
 levels: [mid, senior]         # entry, mid, senior, staff, principal
-flavor: kubernetes            # debugging only: kubernetes, compose-linux, database, ci-cd, ai-pipeline
+flavor: kubernetes            # debugging only: kubernetes, compose-linux
 class: legacy-rescue          # takehome only: constrained-systems, legacy-rescue,
                               # underspecified-product, optimization-ladder
 time:

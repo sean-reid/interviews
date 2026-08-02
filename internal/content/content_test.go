@@ -1,6 +1,7 @@
 package content
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -305,4 +306,37 @@ func TestZeroMatchGlobWarns(t *testing.T) {
 	if Errors(issues) {
 		t.Errorf("warnings alone must not count as errors: %v", issues)
 	}
+}
+
+// statInsensitiveFS answers Stat and Open for any casing of a stored name,
+// the way APFS does, while the walk still reports the stored names.
+type statInsensitiveFS struct{ fstest.MapFS }
+
+func (f statInsensitiveFS) stored(name string) string {
+	for p := range f.MapFS {
+		if strings.EqualFold(p, name) {
+			return p
+		}
+	}
+	return name
+}
+
+func (f statInsensitiveFS) Open(name string) (fs.File, error) {
+	return f.MapFS.Open(f.stored(name))
+}
+
+func (f statInsensitiveFS) Stat(name string) (fs.FileInfo, error) {
+	return f.MapFS.Stat(f.stored(name))
+}
+
+// A capitalised brief used to validate on a Mac, because fs.Stat found it
+// case-insensitively, and then bundle to nothing, because the glob match is
+// case-sensitive. Validation now reads the walked names instead.
+func TestBriefRulesSeeTheRealCase(t *testing.T) {
+	fsys := statInsensitiveFS{fsFor(t, base(), map[string]string{
+		"candidate/Brief.md":    "brief",
+		"interviewer/rubric.md": "key",
+	})}
+	_, issues := Load(fsys, taxonomy.Debugging, "pipeline-meltdown")
+	wantIssue(t, issues, "brief is required")
 }

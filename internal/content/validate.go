@@ -2,7 +2,6 @@ package content
 
 import (
 	"fmt"
-	"io/fs"
 	"maps"
 	"regexp"
 	"slices"
@@ -174,7 +173,11 @@ func validateParam(name string, p ParamSpec) []Issue {
 func validateFiles(p *Problem) []Issue {
 	var issues []Issue
 
-	if _, err := fs.Stat(p.FS, BriefPath); err != nil {
+	// The scan carries the names the walk actually saw. fs.Stat answers
+	// case-insensitively on APFS, so a capitalised Brief.md used to pass it
+	// on a Mac, match no candidate glob, and bundle a take-home whose front
+	// page tells the candidate to start with a brief that is not in it.
+	if !slices.Contains(p.Scan.Candidate, BriefPath) && !slices.Contains(p.Scan.Interviewer, BriefPath) {
 		issues = append(issues, Issue{Path: BriefPath, Msg: "candidate brief is required for every problem"})
 	} else if p.Classifier.Classify(BriefPath) != leak.CandidateVisible {
 		issues = append(issues, Issue{Path: BriefPath, Msg: "candidate brief must be candidate-visible"})

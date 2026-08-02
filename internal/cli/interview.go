@@ -241,9 +241,8 @@ func cmdHint(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	// A provisioned host keeps its workdir on the host and a take-home has
-	// none, so for those the ledger lives here, keyed by seed. start --remote
-	// prints "log hints with: interviews hint", and this is what makes that
-	// true: it used to name a flag with no value the interviewer could know.
+	// none, so for those the ledger lives here, keyed by seed. This is what
+	// lets start --remote print "log hints with: interviews hint".
 	dir := rec.Workdir
 	if dir == "" {
 		if dir, err = interview.HintsDir(rec.Seed); err != nil {

@@ -67,11 +67,11 @@ const tooEasyShare = 0.6
 // Judge assigns a verdict from a debugging attempt's numbers. An agent that
 // fixes most of a pack unassisted, or that makes the app healthy end to end,
 // has made the exercise a formality.
-func Judge(fixed, total int, verified bool) Verdict {
-	if total == 0 {
+func Judge(e Entry) Verdict {
+	if e.Total == 0 {
 		return Inconclusive
 	}
-	if verified || float64(fixed)/float64(total) >= tooEasyShare {
+	if e.Verified || e.Share() >= tooEasyShare {
 		return TooEasy
 	}
 	return Holds

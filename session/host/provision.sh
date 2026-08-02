@@ -8,10 +8,9 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 # prereqs installs everything the host needs before any of it is configured:
-# the packages, the AWS CLI, and the pinned binaries. It is a function so CI
-# can run this phase alone in a stock container. Nothing here touches systemd
-# or the network beyond fetching, which is what makes that possible, and it is
-# the phase where a package that does not exist on this release shows up.
+# the packages, the AWS CLI, and the pinned binaries. Nothing here touches
+# systemd or the network beyond fetching, and it is the phase where a package
+# that does not exist on this release shows up.
 prereqs() {
   # Moving KIND_VERSION means revisiting DefaultNodeImage in
   # internal/debug/kind.go. The platform pins the node image so a cluster is
@@ -84,14 +83,6 @@ prereqs() {
   asciinema --version
   caddy version
 }
-
-# Called with the flag by CI, which stops before anything that needs a real
-# host. Provisioning a host runs the whole script with no arguments.
-if [ "${1:-}" = "--prereqs-only" ]; then
-  prereqs
-  echo "prereqs completed"
-  exit 0
-fi
 
 # Uploaded at milestones as well as on exit, because a provision that is
 # merely slow looks identical to one that is stuck when the only report comes

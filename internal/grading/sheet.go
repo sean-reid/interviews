@@ -21,7 +21,7 @@ type SheetData struct {
 	Score    *Score // nil until interviews grade score has run
 	Hints    []Hint
 	// Level is who this interview was calibrated for. Empty leaves the row
-	// blank and prints every band, which is the old behavior.
+	// blank and prints every band.
 	Level taxonomy.Level
 }
 

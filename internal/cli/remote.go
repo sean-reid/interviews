@@ -29,7 +29,6 @@ const (
 type remoteOptions struct {
 	TTLMinutes   int
 	InstanceType string
-	NoWait       bool
 	Infra        string
 }
 
@@ -142,10 +141,6 @@ func startRemote(problem, seed string, level taxonomy.Level, opts remoteOptions,
 	}
 
 	fmt.Fprintf(stdout, "\nhost %s, self-destructs in %d minutes\n", rec.Host, opts.TTLMinutes)
-	if opts.NoWait {
-		fmt.Fprintf(stdout, "not waiting for boot. interviews sessions show prints the URLs.\n")
-		return 0
-	}
 	tail := &logTail{env: env, evidence: rec.Evidence}
 	if err := waitForHost(stdout, rec.Host, rec.CandidateURL, tail); err != nil {
 		fmt.Fprintf(stderr, "\ninterviews start: %v\n", err)

@@ -10,10 +10,21 @@ import (
 	"github.com/sean-reid/interviews/internal/version"
 )
 
+// TestMain drops the registry variable inherited from the developer's
+// environment. It exists so an interviewer can run a second registry, which
+// means the people most likely to have a live session open are exactly the
+// ones an if-unset guard leaves unprotected: one arg-error test once
+// resolved their current seed and built a real cluster against it.
+func TestMain(m *testing.M) {
+	_ = os.Unsetenv(interview.HomeEnv)
+	os.Exit(m.Run())
+}
+
 // run drives the CLI against a registry of its own. Without that, a test
 // picks up whatever session the developer running it has open, and the
 // commands that default to the current one behave differently on every
-// machine.
+// machine. Tests that pre-seed a registry set the variable themselves and
+// keep it: TestMain has already dropped the inherited one.
 func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	if os.Getenv(interview.HomeEnv) == "" {

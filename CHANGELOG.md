@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0](https://github.com/sean-reid/interviews/compare/v0.6.0...v0.7.0) (2026-08-02)
+
+
+### Features
+
+* **aws:** expire superseded versions in the evidence bucket ([#69](https://github.com/sean-reid/interviews/issues/69)) ([480dd8d](https://github.com/sean-reid/interviews/commit/480dd8debf3531086e7cb62fb5adc64970b40734))
+* **aws:** terminate hosts that outlive their ttl ([#71](https://github.com/sean-reid/interviews/issues/71)) ([bffe601](https://github.com/sean-reid/interviews/commit/bffe601b1add3737144bfed40994bda9269229e1))
+
+
+### Bug Fixes
+
+* **cli:** interrupt terraform instead of killing it, and bound the rest ([#70](https://github.com/sean-reid/interviews/issues/70)) ([4c5e1be](https://github.com/sean-reid/interviews/commit/4c5e1bed938e9159ccd3d0a2a36326410d51736a))
+* **cli:** resolve a problem one way, not two ([#67](https://github.com/sean-reid/interviews/issues/67)) ([85a47f8](https://github.com/sean-reid/interviews/commit/85a47f87de541a3596dc490c14f22725e62b3308))
+* **debug:** keep the state file grading re-resolves from ([#66](https://github.com/sean-reid/interviews/issues/66)) ([dc85786](https://github.com/sean-reid/interviews/commit/dc857867f418c4bc3fe679bb106a3a0163079f53))
+* **interview:** reserve the seeds that name bucket prefixes ([#63](https://github.com/sean-reid/interviews/issues/63)) ([ba256b3](https://github.com/sean-reid/interviews/commit/ba256b3dbcce7fa7a752ef9b75347d6b40965319))
+* **interview:** stop saving a record from selecting it ([#64](https://github.com/sean-reid/interviews/issues/64)) ([d3b21bc](https://github.com/sean-reid/interviews/commit/d3b21bc28d5e427bd778d8ef68591ea2cc167ebb))
+* **session:** put the candidate's own work in the evidence bundle ([#68](https://github.com/sean-reid/interviews/issues/68)) ([345968f](https://github.com/sean-reid/interviews/commit/345968f55ca79236a35af03988c5d1cfc513562c))
+
 ## [0.6.0](https://github.com/sean-reid/interviews/compare/v0.5.0...v0.6.0) (2026-08-02)
 
 

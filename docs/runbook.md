@@ -223,6 +223,25 @@ Tear down with `terraform destroy`. If you forget, the host powers off at
 the TTL (default 120 minutes) and terminates itself; the EIP and security
 group still want the destroy.
 
+## The backstop
+
+`interviews end` and the guest's own TTL timer are the two ways a host stops.
+Both can fail: a kernel panic, a full disk, or a provision that died before
+arming anything. So the account runs a reaper, created by the account module:
+every 15 minutes it terminates instances whose `TTLMinutes` tag is more than
+15 minutes past their launch time.
+
+It only touches instances carrying `ManagedBy=interviews`, `Interview` and
+`TTLMinutes`, and its IAM can terminate nothing else. Everything it looked at
+and why is in `/aws/lambda/iv-reaper`:
+
+```sh
+aws logs tail /aws/lambda/iv-reaper --since 1h
+```
+
+The grace exists so the guest's own timer always wins. If you need a host to
+outlive its TTL, remove its `TTLMinutes` tag rather than racing the schedule.
+
 ## Finding a host nobody is watching
 
 The session registry lives on the machine that ran `start`, so it cannot say

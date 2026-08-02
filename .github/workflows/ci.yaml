@@ -50,6 +50,11 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
       - name: format
         run: terraform fmt -check -recursive infra
+      # The reaper terminates instances on a schedule, so the decision about
+      # which ones is the part worth gating. Standard library only, so there
+      # is nothing to install.
+      - name: reaper
+        run: python3 -m unittest discover -s infra/aws/account/reaper -v
       - name: validate
         run: |
           for mod in infra/aws/*/; do

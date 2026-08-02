@@ -1,8 +1,13 @@
 /interviews
 .terraform/
 
-# Written by the take-home harnesses when they run in place.
+# Written by the take-home harnesses when they run in place, and by the
+# reaper's unit tests.
 __pycache__/
+
+# The zip terraform builds from the reaper source. The source is tracked; the
+# artifact is rebuilt on every plan.
+.reaper.zip
 
 # Credentials, and the files that carry them by accident.
 .env

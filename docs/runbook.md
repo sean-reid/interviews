@@ -117,6 +117,12 @@ What the policy allows, and why each part is there:
 `Describe*` calls cannot be scoped to a resource, so those are `"Resource": "*"`
 with a region condition. Everything that can be scoped is.
 
+That applies to `logs:DescribeLogGroups` too, which is easy to miss because it
+sits beside log group actions that do scope. Written next to them it is denied,
+and terraform reads the reaper's log group that way, so the apply fails partway
+with the function already created. The probe below is how to tell: an action
+that is genuinely permitted comes back with a not-found, never a denial.
+
 Two details worth knowing before editing the file. `iam:PassRole` has no matching
 API call: it is a permission the console and terraform check, and deleting it
 because it does not appear in the API reference breaks the instance profile
